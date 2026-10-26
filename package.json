@@ -1,0 +1,22 @@
+{
+  "name": "wc-decomp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Decompile Wing Commander's WC.EXE (Borland C++ / VROOM overlays) to C with Ghidra",
+  "type": "module",
+  "scripts": {
+    "flatten": "node src/cli.ts flatten",
+    "fid": "node src/cli.ts fid",
+    "decompile": "node src/cli.ts decompile",
+    "redecompile": "node src/cli.ts redecompile",
+    "recomp": "node src/cli.ts recomp",
+    "build": "node src/cli.ts build",
+    "typecheck": "tsc --noEmit",
+    "discover": "node src/cli.ts discover",
+    "mission": "node src/mission.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3"
+  }
+}

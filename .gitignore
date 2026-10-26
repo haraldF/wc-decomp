@@ -1,0 +1,14 @@
+node_modules/
+out/
+# never commit game files, Borland libraries or anything captured from them
+*.EXE
+*.exe
+*.DRV
+*.LIB
+*.OBJ
+*.bin
+*.fidb
+*.png
+*.pkg
+.DS_Store
+*.swp
