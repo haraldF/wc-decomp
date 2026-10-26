@@ -18,8 +18,10 @@ void pc_key(uint8_t scancode);
 /* CPU speed in instructions per millisecond (0: unlimited); change > 0 raises it by 20%, < 0
  * lowers it, 0 only reads it. */
 uint64_t pc_cycles(int change);
-/* The frame rate in space flight (0: not paced by frames); pc_cycles changes it along. */
-uint64_t pc_flight_fps(void);
+/* The frame rate in space flight (0: not paced by frames), changed the same way. */
+uint64_t pc_flight_fps(int change);
+/* Whether frames are paced now (in flight), so pc_flight_fps sets the speed rather than pc_cycles. */
+int pc_in_flight(void);
 /* The mouse over the picture: x 0..319, y 0..199; buttons: 1 left, 2 right, 4 middle. */
 void pc_mouse(int x, int y, int buttons);
 /* Mouse movement by dx, dy picture pixels from wherever the pointer is (full screen). */

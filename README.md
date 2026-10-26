@@ -169,7 +169,8 @@ Wing Commander paces its animation and space flight by CPU speed, so the runtime
 the value); `WC_CYCLES=n` sets it at start (instructions per ms, like DOSBox's `cycles`), and
 `WC_CYCLES=max` runs as fast as possible. In space flight the game draws more per frame when
 enemies are close, so there the runtime paces frames instead: 15 per second (`WC_FPS`), running
-at full speed in between; Cmd+Up/Down scale both together. `WC_STATS=1` prints the frame rate.
+at full speed in between; in flight Cmd+Up/Down change the frame rate instead, by 20% too, and
+leave the instruction rate alone. `WC_STATS=1` prints the frame rate.
 
 `WC_HEADLESS=1` runs without a window (`npm run discover` does), taking keys from the terminal or
 `WC_KEYS`. `WC_SCREENSHOT=file` saves the VGA palette and frame buffer when the program stops (also

@@ -59,15 +59,20 @@ EMSCRIPTEN_KEEPALIVE void web_mouse_move(int dx, int dy, int buttons)
 	pc_mouse_move(dx, dy, buttons);
 }
 
-/* Instructions per ms (0: unlimited); change as for pc_cycles. */
+/* Instructions per ms (0: unlimited) and the frame rate in flight; change as for pc_cycles. */
 EMSCRIPTEN_KEEPALIVE double web_cycles(int change)
 {
 	return (double)pc_cycles(change);
 }
 
-EMSCRIPTEN_KEEPALIVE double web_flight_fps(void)
+EMSCRIPTEN_KEEPALIVE double web_flight_fps(int change)
 {
-	return (double)pc_flight_fps();
+	return (double)pc_flight_fps(change);
+}
+
+EMSCRIPTEN_KEEPALIVE int web_in_flight(void)
+{
+	return pc_in_flight();
 }
 
 /* ---- sound: a ring buffer of 16-bit stereo frames that the page's AudioWorklet reads ---- */

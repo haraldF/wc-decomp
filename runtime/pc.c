@@ -339,6 +339,7 @@ static uint64_t throttle_start_ns, throttle_start_icount, throttle_cycles;
  * to 3 frames' worth of instructions at full speed (heavy frames need it). Code that goes on
  * without copying frames (the autopilot sequence) is limited by instructions again at once. */
 static int pacing;
+static _Atomic int pacing_seen; /* pacing, for the host's thread (pc_in_flight) */
 static uint64_t next_frame_ns, frame_icount;
 
 static uint64_t faster(uint64_t c, int change, uint64_t lo, uint64_t hi)
@@ -350,15 +351,21 @@ static uint64_t faster(uint64_t c, int change, uint64_t lo, uint64_t hi)
 
 uint64_t pc_cycles(int change)
 {
-	if (change) atomic_store(&flight_fps, faster(atomic_load(&flight_fps), change, 5, 200));
 	uint64_t c = faster(atomic_load(&cycles_per_ms), change, 500, 1000000);
 	atomic_store(&cycles_per_ms, c);
 	return c;
 }
 
-uint64_t pc_flight_fps(void)
+uint64_t pc_flight_fps(int change)
 {
-	return atomic_load(&flight_fps);
+	uint64_t f = faster(atomic_load(&flight_fps), change, 5, 200);
+	atomic_store(&flight_fps, f);
+	return f;
+}
+
+int pc_in_flight(void)
+{
+	return atomic_load_explicit(&pacing_seen, memory_order_relaxed);
 }
 
 static void throttle(void)
@@ -374,6 +381,7 @@ static void throttle(void)
 			return;
 		}
 		pacing = 0; /* no frame copy for a while: limit instructions from here */
+		atomic_store_explicit(&pacing_seen, 0, memory_order_relaxed);
 		throttle_start_ns = now;
 		throttle_start_icount = wc_icount;
 	}
@@ -424,6 +432,7 @@ void pc_frame(uint32_t at)
 	}
 	if (!pacing || now > next_frame_ns + 4 * period) next_frame_ns = now; /* (re)start */
 	pacing = 1;
+	atomic_store_explicit(&pacing_seen, 1, memory_order_relaxed);
 	next_frame_ns += period;
 	while ((now = pc_now_ns()) < next_frame_ns) {
 		uint64_t wait = next_frame_ns - now;

@@ -193,7 +193,9 @@ x86 real-mode modelling bugs the scripts work around:
 
 - Wing Commander paces animation and space flight by CPU speed. The runtime runs at most
   `WC_CYCLES` instructions per ms, checked every 1024 instructions in `irq_poll` (`throttle()`);
-  `WC_CYCLES=max` is unlimited (~400–600 M/s). Cmd+Up/Down in the window change it by 20%.
+  `WC_CYCLES=max` is unlimited (~400–600 M/s). Cmd+Up/Down in the window change it by 20%; in
+  flight (`pc_in_flight()`: frames are being paced) they change the frame rate instead, each
+  separately (they used to scale both together).
 - GOG's DOSBox uses `cycles=4000`, but at 4000 the user found the game far too slow (our count
   is not DOSBox's cycle count). At 10000 the rest felt right but the simulator a little too fast;
   two Cmd+Down steps (~6950) suited it, so the default was 7000. Since flight is paced by frames

@@ -1,7 +1,7 @@
 /* The host with SDL3: a window showing the VGA picture at 4:3, the keyboard as PC scancodes, the
  * mouse for the mouse driver (mouse.c).
- * Cmd+F toggles full screen, Cmd+Up/Down change the CPU speed, Cmd+Left/Right the mouse's speed
- * in full screen (both shown in the title), Cmd+Q or closing the window quits. WC_HEADLESS=1: no
+ * Cmd+F toggles full screen, Cmd+Up/Down change the speed (in flight the frame rate, elsewhere the
+ * instruction rate), Cmd+Left/Right the mouse's speed in full screen (all shown in the title), Cmd+Q or closing the window quits. WC_HEADLESS=1: no
  * window. */
 #include <pthread.h>
 #include <stdio.h>
@@ -96,7 +96,7 @@ static void show_speed(void)
 	char title[120];
 	uint64_t c = pc_cycles(0);
 	if (c) snprintf(title, sizeof title, "Wing Commander \xe2\x80\x94 %llu cycles/ms, %llu fps in flight, mouse \xc3\x97%.2g",
-		(unsigned long long)c, (unsigned long long)pc_flight_fps(), mouse_speed);
+		(unsigned long long)c, (unsigned long long)pc_flight_fps(0), mouse_speed);
 	else snprintf(title, sizeof title, "Wing Commander \xe2\x80\x94 max speed, mouse \xc3\x97%.2g", mouse_speed);
 	SDL_SetWindowTitle(window, title);
 }
@@ -114,7 +114,10 @@ static void key(const SDL_KeyboardEvent *e)
 			show_speed();
 		}
 		if (e->down && (e->scancode == SDL_SCANCODE_UP || e->scancode == SDL_SCANCODE_DOWN)) {
-			pc_cycles(e->scancode == SDL_SCANCODE_UP ? 1 : -1);
+			/* what paces the game now: the frame rate in flight, else the instruction rate */
+			int change = e->scancode == SDL_SCANCODE_UP ? 1 : -1;
+			if (pc_in_flight()) fprintf(stderr, "wc: %llu fps in flight (WC_FPS)\n", (unsigned long long)pc_flight_fps(change));
+			else fprintf(stderr, "wc: %llu cycles/ms (WC_CYCLES)\n", (unsigned long long)pc_cycles(change));
 			show_speed();
 		}
 		if (!e->down && held[e->scancode]) { held[e->scancode] = 0; pc_key(pc_scancode[e->scancode] | 0x80); }
