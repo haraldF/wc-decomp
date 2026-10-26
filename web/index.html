@@ -358,7 +358,8 @@ async function start() {
   const canvas = $("canvas");
   let wc;
   const config = {
-    arguments: ["/game"],
+    // ?args=Origin%20-k: the game's own command line (here the developers' mode without damage)
+    arguments: ["/game", ...(new URLSearchParams(location.search).get("args") ?? "").split(/\s+/).filter(Boolean)],
     print: (t) => console.log(t),
     printErr: (t) => console.log(t),
     preRun: [(m) => {

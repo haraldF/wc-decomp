@@ -1,6 +1,8 @@
 /* Loads and relocates the program image, sets up the DOS process the way DOS's EXE loader would,
  * and enters the recompiled code at the program's entry point.
- * Usage: wc [game folder]
+ * Usage: wc [game folder [game arguments...]]
+ *   game arguments  passed to the game on its DOS command line, e.g. "Origin -k" (the developers'
+ *                   mode, "Origin" spelled exactly so; -k: the player's ship takes no damage)
  *   WC_TRACE=1      trace DOS calls; 2 also every instruction; 3 also I/O ports
  *   WC_KEYS=tick:key,...  press keys after that many timer interrupts (else: keys typed in the terminal);
  *                   +key only presses, -key only releases
@@ -76,7 +78,25 @@ static void load_image(const char *dir, unsigned load_seg)
 	memcpy(wc_image_copy, M + base, size);
 }
 
-static void setup_process(unsigned load_seg)
+/* The arguments after the game folder, as the DOS command line (in the PSP, at most 126 characters). */
+static void set_command_line(uint8_t *psp, int argc, char **argv)
+{
+	char line[127] = "";
+	size_t n = 0;
+	for (int i = 0; i < argc; i++) {
+		int w = snprintf(line + n, sizeof line - n, " %s", argv[i]);
+		if (w < 0 || n + (size_t)w >= sizeof line) {
+			fprintf(stderr, "wc: the game arguments are longer than DOS allows (126 characters)\n");
+			exit(1);
+		}
+		n += (size_t)w;
+	}
+	psp[0x80] = (uint8_t)n;
+	memcpy(psp + 0x81, line, n);
+	psp[0x81 + n] = 0x0d;
+}
+
+static void setup_process(unsigned load_seg, int argc, char **argv)
 {
 	unsigned psp_seg = load_seg - 0x10, env_seg = load_seg - 0x20;
 	/* environment: variables, an empty string ending them, a count word and the program path
@@ -91,8 +111,7 @@ static void setup_process(unsigned load_seg)
 	psp[3] = TOP_SEG >> 8;
 	psp[0x2c] = env_seg & 0xff;
 	psp[0x2d] = env_seg >> 8;
-	psp[0x80] = 0;    /* empty command line */
-	psp[0x81] = 0x0d;
+	set_command_line(psp, argc, argv);
 	wc_psp_seg = psp_seg;
 
 	wr(R_CS, 2, load_seg + ENTRY_CS);
@@ -148,7 +167,7 @@ int main(int argc, char **argv)
 	}
 
 	load_image(dir, load_seg);
-	setup_process(load_seg);
+	setup_process(load_seg, argc > 2 ? argc - 2 : 0, argv + 2);
 	pc_init(!host_open());
 
 	const char *watch = getenv("WC_WATCH");

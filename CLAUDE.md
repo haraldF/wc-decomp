@@ -274,7 +274,10 @@ tied to its mixer).
   campaign 2 overran the stack while loading.
 - The game also has hidden developer arguments: `Origin` (exact case) enables `s<series>`,
   `m<mission>` (sets the start, as in the new-campaign template), `l`, `w<n>`, and `-b`/`-k`;
-  arguments are read after the words of `WINGCMDR.CFG`. The runtime passes an empty command line.
+  arguments are read after the words of `WINGCMDR.CFG`. `-k` clears DS:00BA, without which the
+  flight code applies no damage to the player's ship (ovl11): `wc ../game Origin -k`, the page
+  `?args=Origin%20-k`. Arguments after the game folder go to the PSP command line; `?` prints the
+  version (F3.1). At runtime DS is load segment + 1231h = 1431h: DS:x is linear 14310h + x (WC_WATCH).
 - Barracks bunks are the slots (hotspot table DS:1d12): the sleeper loads, the rest of the bunk
   saves; the right-hand wall (300,60) goes to the mission. Clicking a sleeper at full speed:
   `WC_MOUSE=1 WC_KEYS=1000:esc,1100:esc,1300:@160.100,1350:+lmb,1356:-lmb,1700:@137.90,1750:+lmb,

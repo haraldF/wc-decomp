@@ -25,7 +25,8 @@ Then, with the game folder (the one with `WC.EXE` and `GAMEDAT/`) at `../game`, 
 npm run decompile    # flatten the overlays, analyze with Ghidra (a few minutes)
 npm run recomp       # generate C from it and build out/bin/wc
 npm run discover     # run it: captures and recompiles the drivers the game loads (a few minutes)
-out/bin/wc ../game   # play
+out/bin/wc ../game   # play (arguments after the folder go to the game: Origin -k, the developers'
+                     # mode, makes your ship take no damage; "Origin" spelled exactly so)
 ```
 
 Everything generated goes to `out/` (ignored by git). `discover` runs the game headless several
@@ -223,7 +224,8 @@ IndexedDB, so this is needed once. Whatever the game writes (save games, high sc
 `SAVEGAME.WLD`) goes to IndexedDB as well and is there again after a reload, also when you give the
 page the game files anew; "Download save games" makes a copy. The page asks the browser to keep its
 storage persistent, but a browser may still clear it, so keep copies of save games you care about.
-Logs go to the browser console; URL parameters set the `WC_*` variables (`?WC_STATS=1`).
+Logs go to the browser console; URL parameters set the `WC_*` variables (`?WC_STATS=1`), and
+`?args=` the game's command line (`?args=Origin%20-k`).
 
 The emulation runs on a thread of its own, which needs `SharedArrayBuffer`, so the page has to be
 cross-origin isolated: `npm run serve` sends the headers for that, and on a static host that can't,
