@@ -189,8 +189,10 @@ x86 real-mode modelling bugs the scripts work around:
   `WC_CYCLES=max` is unlimited (~400–600 M/s). Cmd+Up/Down in the window change it by 20%.
 - GOG's DOSBox uses `cycles=4000`, but at 4000 the user found the game far too slow (our count
   is not DOSBox's cycle count). At 10000 the rest felt right but the simulator a little too fast;
-  two Cmd+Down steps (~6950) suited it, so the default is 7000.
-- In flight, frames are paced instead (pc_frame, `WC_FPS`, default 18; 25 and 21 felt too fast, "hectic"): the frame copy is entry 4
+  two Cmd+Down steps (~6950) suited it, so the default was 7000. Since flight is paced by frames
+  (below), the intro decides: 10000 was a little too fast, one Cmd+Down step from there (8334,
+  with 15 fps in flight) felt right, so those are the defaults.
+- In flight, frames are paced instead (pc_frame, `WC_FPS`, default 15; 25 and 21 felt too fast, "hectic", 18 was fine, 15 better in combat): the frame copy is entry 4
   (offset 7454) of the second graphics driver, d7000, recognised in `run()` by that address. Between
   two frame copies the game may run 3 frames' worth of instructions (3 x cycles x 1000/fps) at full
   speed; beyond that the instruction limit applies again. (A 0.5 s full-speed window after the last

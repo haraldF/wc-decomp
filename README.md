@@ -162,10 +162,10 @@ which runs at the VGA's 70 Hz in real time (port 3DAh). `runtime/host.h` is the 
 between the two, so the emulation itself never includes SDL.
 
 Wing Commander paces its animation and space flight by CPU speed, so the runtime limits it to
-7000 instructions per millisecond. Cmd+Up/Down in the window change that by 20% (the title shows
+8334 instructions per millisecond. Cmd+Up/Down in the window change that by 20% (the title shows
 the value); `WC_CYCLES=n` sets it at start (instructions per ms, like DOSBox's `cycles`), and
 `WC_CYCLES=max` runs as fast as possible. In space flight the game draws more per frame when
-enemies are close, so there the runtime paces frames instead: 18 per second (`WC_FPS`), running
+enemies are close, so there the runtime paces frames instead: 15 per second (`WC_FPS`), running
 at full speed in between; Cmd+Up/Down scale both together. `WC_STATS=1` prints the frame rate.
 
 `WC_HEADLESS=1` runs without a window (`npm run discover` does), taking keys from the terminal or

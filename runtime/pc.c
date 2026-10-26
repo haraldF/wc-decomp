@@ -323,8 +323,8 @@ static void deliver(uint32_t at);
  * In flight the game draws more or less per frame (enemies close by: more), so a fixed
  * instruction rate gives an uneven frame rate. There it runs at full speed and pc_frame() paces
  * the frames instead (flight_fps, WC_FPS; 0: no frame pacing). */
-static _Atomic uint64_t cycles_per_ms = 7000;
-static _Atomic uint64_t flight_fps = 18;
+static _Atomic uint64_t cycles_per_ms = 8334;
+static _Atomic uint64_t flight_fps = 15;
 static uint64_t throttle_start_ns, throttle_start_icount, throttle_cycles;
 /* Frames are paced while the game copies frames to the screen; between two copies it may use up
  * to 3 frames' worth of instructions at full speed (heavy frames need it). Code that goes on

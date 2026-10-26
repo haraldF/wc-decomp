@@ -10,8 +10,8 @@
  *   WC_HEADLESS=1   no window (keys from the terminal or WC_KEYS)
  *   WC_MOUSE=1      report a mouse without a window (for WC_KEYS mouse entries)
  *   WC_WAV=file     record the sound (AdLib) to a WAV file
- *   WC_CYCLES=n     instructions per millisecond (default 7000; "max": unlimited; Cmd+Up/Down in the window)
- *   WC_FPS=n        frames per second in space flight, where frames are paced instead (default 18; 0: off)
+ *   WC_CYCLES=n     instructions per millisecond (default 8334; "max": unlimited; Cmd+Up/Down in the window)
+ *   WC_FPS=n        frames per second in space flight, where frames are paced instead (default 15; 0: off)
  *   WC_STATS=1      print the frame rate in flight every second */
 #include <libgen.h>
 #include <limits.h>
