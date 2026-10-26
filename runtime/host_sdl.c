@@ -1,7 +1,8 @@
 /* The host with SDL3: a window showing the VGA picture at 4:3, the keyboard as PC scancodes, the
  * mouse for the mouse driver (mouse.c).
- * Cmd+F toggles full screen, Cmd+Up/Down change the CPU speed (shown in the title), Cmd+Q or
- * closing the window quits. WC_HEADLESS=1: no window. */
+ * Cmd+F toggles full screen, Cmd+Up/Down change the CPU speed, Cmd+Left/Right the mouse's speed
+ * in full screen (both shown in the title), Cmd+Q or closing the window quits. WC_HEADLESS=1: no
+ * window. */
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +17,9 @@ static SDL_Texture *picture; /* 320x200, the frame in colour */
 static SDL_Texture *scaled;  /* the picture enlarged by whole factors, then smoothly to the window */
 static int scaled_x, scaled_y;
 static SDL_FRect shown_at;    /* where the picture is in the window (render pixels), for the mouse */
+/* Captured (full screen) movement times this: 1 crosses the picture with a movement as wide as the
+ * picture on the screen, which was too slow (WC_MOUSE_SPEED; Cmd+Left/Right change it). */
+static float mouse_speed = 2;
 static SDL_AudioStream *audio;
 static unsigned audio_rate;
 
@@ -40,6 +44,8 @@ int host_open(void)
 		return 0;
 	}
 	SDL_SetRenderVSync(renderer, 1);
+	const char *speed = getenv("WC_MOUSE_SPEED");
+	if (speed && atof(speed) > 0) mouse_speed = (float)atof(speed);
 	picture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, 320, 200);
 	SDL_SetTextureScaleMode(picture, SDL_SCALEMODE_NEAREST);
 	return 1;
@@ -87,11 +93,11 @@ static void init_keys(void)
 
 static void show_speed(void)
 {
-	char title[80];
+	char title[120];
 	uint64_t c = pc_cycles(0);
-	if (c) snprintf(title, sizeof title, "Wing Commander \xe2\x80\x94 %llu cycles/ms, %llu fps in flight",
-		(unsigned long long)c, (unsigned long long)pc_flight_fps());
-	else snprintf(title, sizeof title, "Wing Commander \xe2\x80\x94 max speed");
+	if (c) snprintf(title, sizeof title, "Wing Commander \xe2\x80\x94 %llu cycles/ms, %llu fps in flight, mouse \xc3\x97%.2g",
+		(unsigned long long)c, (unsigned long long)pc_flight_fps(), mouse_speed);
+	else snprintf(title, sizeof title, "Wing Commander \xe2\x80\x94 max speed, mouse \xc3\x97%.2g", mouse_speed);
 	SDL_SetWindowTitle(window, title);
 }
 
@@ -100,6 +106,12 @@ static void key(const SDL_KeyboardEvent *e)
 	if (e->mod & SDL_KMOD_GUI) { /* Cmd: for the Mac, not the game */
 		if (e->down && !e->repeat && e->scancode == SDL_SCANCODE_F) {
 			SDL_SetWindowFullscreen(window, !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN));
+		}
+		if (e->down && (e->scancode == SDL_SCANCODE_LEFT || e->scancode == SDL_SCANCODE_RIGHT)) {
+			mouse_speed *= e->scancode == SDL_SCANCODE_RIGHT ? 1.25f : 0.8f;
+			mouse_speed = SDL_clamp(mouse_speed, 0.25f, 16.0f);
+			fprintf(stderr, "wc: mouse speed %.2g (WC_MOUSE_SPEED)\n", mouse_speed); /* full screen has no title */
+			show_speed();
 		}
 		if (e->down && (e->scancode == SDL_SCANCODE_UP || e->scancode == SDL_SCANCODE_DOWN)) {
 			pc_cycles(e->scancode == SDL_SCANCODE_UP ? 1 : -1);
@@ -195,7 +207,7 @@ static void mouse(const SDL_Event *e)
 	if (SDL_GetWindowRelativeMouseMode(window)) {
 		static float fx, fy; /* fractions of picture pixels not passed on yet */
 		if (e->type == SDL_EVENT_MOUSE_MOTION) {
-			float scale = SDL_GetWindowPixelDensity(window);
+			float scale = SDL_GetWindowPixelDensity(window) * mouse_speed;
 			fx += e->motion.xrel * scale * 320 / shown_at.w;
 			fy += e->motion.yrel * scale * 200 / shown_at.h;
 		}

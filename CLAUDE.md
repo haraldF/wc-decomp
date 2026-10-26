@@ -151,7 +151,13 @@ x86 real-mode modelling bugs the scripts work around:
   mode 13h. Window events arrive over a lock-free ring; a click is reported until the program has
   read the buttons once, and one shorter than 60 ms is reported as held for 60 ms (the barracks
   missed instant clicks even so: WC_KEYS `lmb` taps work now). Headless: WC_MOUSE=1 and WC_KEYS entries
-  `@x.y` (move, 320x200), `lmb`/`rmb` (+/- to hold/release). Clicking "Start Vega Campaign":
+  `@x.y` (move, 320x200), `lmb`/`rmb` (+/- to hold/release).
+  In flight the game only polls AX=3 (absolute position) and steers by the pointer's distance from
+  the centre, like a joystick, without re-centring it. Captured movement (full screen) at 1:1 (a
+  movement as wide as the picture crosses it) felt sluggish and imprecise (with macOS's trackpad
+  acceleration). A curve against the acceleration (d -> 4·(d/4)^0.5) made it worse: everything got
+  slower. Now a plain speed factor, default 2 (felt right), Cmd+Left/Right ±25% (WC_MOUSE_SPEED; the page:
+  ⌘/Ctrl+←/→, ?mouse=); the page also asks for `unadjustedMovement` pointer lock. Clicking "Start Vega Campaign":
   `WC_KEYS=1000:esc,1100:esc,1300:@160.55,1350:+lmb,1356:-lmb` (at WC_CYCLES=max).
 - BDA 0x463 must be 0x3D4 (CRTC base) or the retrace wait polls port 6. Port 3DA toggles.
 - DOS INT 21h: the functions the game uses (see `dos.c`); file names are case-insensitive against

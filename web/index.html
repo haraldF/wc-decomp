@@ -72,7 +72,7 @@
   <p id="message" hidden></p>
   <p class="note">Game files and save games stay in this browser (IndexedDB); nothing is uploaded anywhere.
     Save games made here are kept when you replace the game files. In the game: ⌘/Ctrl+F full screen,
-    ⌘/Ctrl+↑/↓ speed. Logs go to the browser console.</p>
+    ⌘/Ctrl+↑/↓ speed, ⌘/Ctrl+←/→ mouse speed in full screen. Logs go to the browser console.</p>
 </section>
 
 <section id="game" hidden>
@@ -419,11 +419,20 @@ function run(wc, canvas, audio) {
   };
   requestAnimationFrame(draw);
 
+  // The mouse's speed in full screen (pointer locked): 1 crosses the picture with a movement as wide
+  // as the picture, too slow; ⌘/Ctrl+←/→ change it, ?mouse=x sets it.
+  let mouseSpeed = Number(new URLSearchParams(location.search).get("mouse")) || 2;
   const showSpeed = () => {
     const c = wc._web_cycles(0);
-    $("speed").textContent = c ? `${c} cycles/ms · ${wc._web_flight_fps()} fps in flight` : "max speed";
+    $("speed").textContent = (c ? `${c} cycles/ms · ${wc._web_flight_fps()} fps in flight` : "max speed") +
+      ` · mouse ×${+mouseSpeed.toPrecision(2)}`;
   };
   const speed = (change) => { wc._web_cycles(change); showSpeed(); };
+  const faster = (up) => {
+    mouseSpeed = Math.min(16, Math.max(0.25, mouseSpeed * (up ? 1.25 : 0.8)));
+    log(`mouse speed ${+mouseSpeed.toPrecision(2)} (?mouse=)`);
+    showSpeed();
+  };
   showSpeed();
   $("slower").onclick = () => { speed(-1); canvas.focus(); };
   $("faster").onclick = () => { speed(1); canvas.focus(); };
@@ -431,11 +440,17 @@ function run(wc, canvas, audio) {
   // Full screen: the pointer is locked, the game gets the mouse's movement, and (in Chrome) Esc
   // goes to the game too (hold Esc to leave full screen).
   const screen = $("screen");
+  // Without the system's pointer acceleration where the browser can (the game steers by where its
+  // pointer is, so accelerated movement makes aiming imprecise).
+  const lockPointer = async () => {
+    try { await canvas.requestPointerLock({ unadjustedMovement: true }); }
+    catch { await canvas.requestPointerLock?.(); }
+  };
   const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement) { await document.exitFullscreen(); return; }
       await screen.requestFullscreen();
-      await canvas.requestPointerLock?.();
+      await lockPointer();
     } catch (e) {
       log("full screen:", e.message || e);
     }
@@ -454,9 +469,11 @@ function run(wc, canvas, audio) {
   const releaseAll = () => { for (const code of held) wc._web_key(scancodes[code] | 0x80); held.clear(); };
   window.addEventListener("keydown", (e) => {
     if ($("game").hidden || !running) return;
-    if (shortcut(e) && ["ArrowUp", "ArrowDown", "KeyF"].includes(e.code)) {
+    if (shortcut(e) && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyF"].includes(e.code)) {
       e.preventDefault();
-      if (e.code === "KeyF") toggleFullscreen(); else speed(e.code === "ArrowUp" ? 1 : -1);
+      if (e.code === "KeyF") toggleFullscreen();
+      else if (e.code === "ArrowLeft" || e.code === "ArrowRight") faster(e.code === "ArrowRight");
+      else speed(e.code === "ArrowUp" ? 1 : -1);
       return;
     }
     if (e.metaKey) return; // Cmd: for the browser
@@ -502,8 +519,8 @@ function run(wc, canvas, audio) {
     if (!running) return;
     const r = canvas.getBoundingClientRect();
     if (document.pointerLockElement === canvas) {
-      fx += e.movementX * 320 / r.width;
-      fy += e.movementY * 200 / r.height;
+      fx += e.movementX * mouseSpeed * 320 / r.width;
+      fy += e.movementY * mouseSpeed * 200 / r.height;
       const dx = Math.trunc(fx), dy = Math.trunc(fy);
       fx -= dx; fy -= dy;
       send(() => { wc._web_mouse_move(dx, dy, e.buttons & 7); });
@@ -521,7 +538,7 @@ function run(wc, canvas, audio) {
   canvas.addEventListener("mousedown", () => {
     canvas.focus();
     if (document.fullscreenElement && document.pointerLockElement !== canvas) {
-      Promise.resolve(canvas.requestPointerLock?.()).catch((e) => log("pointer lock:", e.message || e));
+      lockPointer().catch((e) => log("pointer lock:", e.message || e));
     }
   });
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());

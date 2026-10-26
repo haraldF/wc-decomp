@@ -157,7 +157,9 @@ image, since the heap overlaps the flattened overlays' addresses at runtime.
 4:3, and passes the keyboard to the game as PC scancodes (the arrow and other grey keys as their
 keypad twins) and the mouse to a mouse driver (INT 33h, `runtime/mouse.c`; the game draws its own
 pointer, so the Mac's is hidden over the window). In full screen the pointer is captured, so the
-menu bar and the Dock don't pop up at the screen edges; the game gets the mouse's movement. Cmd+F toggles full screen, Cmd+Q quits. The recompiled program runs on a thread of
+menu bar and the Dock don't pop up at the screen edges; the game gets the mouse's movement, twice
+as fast as the picture is wide; Cmd+Left/Right change that by 25% (`WC_MOUSE_SPEED` sets it; the title
+shows it, and in full screen the terminal). Cmd+F toggles full screen, Cmd+Q quits. The recompiled program runs on a thread of
 its own; the window shows the frame buffer and palette as they were at the last vertical retrace,
 which runs at the VGA's 70 Hz in real time (port 3DAh). `runtime/host.h` is the whole interface
 between the two, so the emulation itself never includes SDL.
