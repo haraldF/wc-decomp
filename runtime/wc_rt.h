@@ -3,6 +3,7 @@
  * real-mode address space. All values are carried as uint64_t and masked to their size. */
 #pragma once
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 /* Ghidra x86 register space offsets */
@@ -105,8 +106,7 @@ static inline uint64_t sborrow(uint64_t a, uint64_t b, int size)
 	return r != sx((uint64_t)r, size);
 }
 
-struct __sFILE;
-void cpu_report(struct __sFILE *f); /* instructions executed and registers */
+void cpu_report(FILE *f); /* instructions executed and registers */
 _Noreturn void cpu_fail(const char *what, uint32_t at);
 void set_flags_word(uint16_t flags); /* the 16-bit FLAGS value into CF, PF, ..., OF */
 _Noreturn void cpu_div0(uint32_t at);

@@ -30,6 +30,26 @@ void pc_mouse_move(int dx, int dy, int buttons) { post(dx, dy, buttons, 1); }
 static int x, y = 100, min_x, max_x = 639, min_y, max_y = 199;
 static uint8_t buttons;     /* held now */
 static uint8_t clicked;     /* pressed since the program last read the buttons (so short clicks count) */
+/* A click shorter than this (a trackpad tap, a browser's synthetic click) is reported as held this
+ * long: the barracks, for one, misses a button that is already up at its next poll. */
+enum { MIN_CLICK_NS = 60000000 };
+static uint64_t press_ns[3];
+static uint8_t short_click; /* released before MIN_CLICK_NS: still reported as held */
+uint64_t pc_now_ns(void);
+
+static uint8_t reported_buttons(void)
+{
+	uint8_t b = buttons | clicked;
+	if (short_click) {
+		uint64_t now = pc_now_ns();
+		for (int i = 0; i < 3; i++) {
+			if (!(short_click & (1 << i))) continue;
+			if (now - press_ns[i] < MIN_CLICK_NS) b |= (uint8_t)(1 << i);
+			else short_click &= (uint8_t)~(1 << i);
+		}
+	}
+	return b;
+}
 static uint16_t presses[3], releases[3];
 static int16_t press_x[3], press_y[3], release_x[3], release_y[3];
 static int mickey_x, mickey_y; /* motion counters since the last read (8 per 8 pixels) */
@@ -56,12 +76,15 @@ static void drain(void)
 			uint8_t bit = (uint8_t)(1 << b);
 			if ((nb & bit) && !(buttons & bit)) {
 				presses[b]++;
+				press_ns[b] = pc_now_ns();
+				short_click &= (uint8_t)~bit;
 				press_x[b] = (int16_t)x;
 				press_y[b] = (int16_t)y;
 				clicked |= bit;
 			}
 			if (!(nb & bit) && (buttons & bit)) {
 				releases[b]++;
+				if (pc_now_ns() - press_ns[b] < MIN_CLICK_NS) short_click |= bit;
 				release_x[b] = (int16_t)x;
 				release_y[b] = (int16_t)y;
 			}
@@ -96,7 +119,7 @@ void mouse_int(uint32_t at)
 	case 0x01: if (visible < 0) visible++; break; /* show cursor */
 	case 0x02: visible--; break;                  /* hide cursor */
 	case 0x03: /* position and buttons */
-		wr(R_BX, 2, buttons | clicked);
+		wr(R_BX, 2, reported_buttons());
 		clicked = 0;
 		wr(R_CX, 2, (uint16_t)x);
 		wr(R_DX, 2, (uint16_t)y);
@@ -108,7 +131,7 @@ void mouse_int(uint32_t at)
 	case 0x05: /* button press information */
 	case 0x06: { /* button release information */
 		int b = bx < 3 ? bx : 0;
-		wr(R_AX, 2, buttons | clicked);
+		wr(R_AX, 2, reported_buttons());
 		if (ax == 5) {
 			wr(R_BX, 2, presses[b]);
 			wr(R_CX, 2, (uint16_t)press_x[b]);

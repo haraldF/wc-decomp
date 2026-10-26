@@ -11,6 +11,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "host.h"
 #include "wc_rt.h"
 
 void cpu_report(FILE *f);
@@ -20,6 +21,9 @@ uint16_t wc_psp_seg;
 
 #define MAX_HANDLES 64
 static int handles[MAX_HANDLES] = { 0, 1, 2, -1, -1 }; /* DOS handle -> host fd; 3 = AUX, 4 = PRN */
+/* The host path of each open file and whether it was changed, for host_file_saved() on close. */
+static char handle_path[MAX_HANDLES][1024];
+static uint8_t handle_changed[MAX_HANDLES];
 static uint32_t dta;
 static char cwd[128]; /* current directory below the game folder, DOS style, no leading backslash */
 
@@ -176,6 +180,8 @@ static void open_file(int flags, const char *what)
 		fail_dos(4);
 		return;
 	}
+	snprintf(handle_path[h], sizeof handle_path[h], "%s", path);
+	handle_changed[h] = (flags & O_TRUNC) != 0;
 	wr(R_AX, 2, h);
 	ok();
 }
@@ -332,6 +338,10 @@ static void dos(uint32_t at)
 		if (BX >= 5) {
 			close(fd);
 			handles[BX] = -1;
+			if (handle_changed[BX]) {
+				handle_changed[BX] = 0;
+				host_file_saved(handle_path[BX]);
+			}
 		}
 		ok();
 		break;
@@ -367,6 +377,9 @@ static void dos(uint32_t at)
 			fail_dos(5);
 			break;
 		}
+		if (BX < MAX_HANDLES) {
+			handle_changed[BX] = 1;
+		}
 		wr(R_AX, 2, put);
 		ok();
 		break;
@@ -379,6 +392,7 @@ static void dos(uint32_t at)
 			fail_dos(dos_error());
 		}
 		else {
+			host_file_saved(path);
 			ok();
 		}
 		break;

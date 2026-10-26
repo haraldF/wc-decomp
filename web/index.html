@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wing Commander</title>
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #151922; --line: #2a3140; --text: #d8dde8; --dim: #8a93a6;
+    --accent: #e8a33d; --ok: #6cc28a; --bad: #e0676a;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  [hidden] { display: none !important; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); color: #1a1205; border-color: var(--accent); font-weight: 600; }
+
+  /* setup */
+  #setup { max-width: 640px; margin: 0 auto; padding: 48px 16px; }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: .02em; }
+  .sub { color: var(--dim); margin: 0 0 28px; }
+  #drop { border: 2px dashed var(--line); border-radius: 10px; padding: 28px 16px; text-align: center;
+    background: var(--panel); transition: border-color .15s, background .15s; }
+  #drop.over { border-color: var(--accent); background: #1b2030; }
+  #drop p { margin: 0 0 14px; }
+  #drop .pickers { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  #status { margin: 20px 0; padding: 0; list-style: none; }
+  #status li { padding: 3px 0 3px 22px; position: relative; color: var(--dim); }
+  #status li::before { content: "•"; position: absolute; left: 6px; }
+  #status li.ok { color: var(--text); } #status li.ok::before { content: "✓"; color: var(--ok); left: 2px; }
+  #status li.bad { color: var(--text); } #status li.bad::before { content: "✗"; color: var(--bad); left: 2px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .note { color: var(--dim); font-size: 13px; margin-top: 24px; }
+  #message { margin: 16px 0 0; color: var(--bad); }
+
+  /* game */
+  #game { height: 100%; display: flex; flex-direction: column; }
+  #screen { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: #000; }
+  #canvas { display: block; aspect-ratio: 4 / 3; width: min(100%, calc((100vh - 48px) * 4 / 3));
+    image-rendering: pixelated; cursor: none; outline: none; background: #000; }
+  #screen:fullscreen #canvas { width: min(100vw, 100vh * 4 / 3); }
+  #bar { height: 48px; display: flex; gap: 8px; align-items: center; padding: 0 12px;
+    border-top: 1px solid var(--line); background: var(--panel); }
+  #bar .speed { color: var(--dim); font-size: 13px; margin-right: auto; font-variant-numeric: tabular-nums; }
+  #bar button { padding: 4px 10px; }
+</style>
+</head>
+<body>
+<section id="setup">
+  <h1>Wing Commander</h1>
+  <p class="sub">The 1990 DOS game, statically recompiled to WebAssembly. Bring your own game files (GOG release).</p>
+  <div id="drop">
+    <p>Drop your Wing Commander folder here (the one with <code>WC.EXE</code> and <code>GAMEDAT</code>).</p>
+    <div class="pickers">
+      <button id="pickDir">Choose folder…</button>
+      <button id="pickFiles">Choose files…</button>
+    </div>
+    <input id="dirInput" type="file" webkitdirectory multiple hidden>
+    <input id="fileInput" type="file" multiple hidden>
+  </div>
+  <ul id="status"></ul>
+  <div class="actions">
+    <button id="start" class="primary" disabled>Start</button>
+    <button id="downloadSaves" hidden>Download save games</button>
+    <button id="forget" hidden>Forget game files</button>
+  </div>
+  <p id="message" hidden></p>
+  <p class="note">Game files and save games stay in this browser (IndexedDB); nothing is uploaded anywhere.
+    Save games made here are kept when you replace the game files. In the game: ⌘/Ctrl+F full screen,
+    ⌘/Ctrl+↑/↓ speed. Logs go to the browser console.</p>
+</section>
+
+<section id="game" hidden>
+  <div id="screen"><canvas id="canvas" width="320" height="200" tabindex="0"></canvas></div>
+  <div id="bar">
+    <span class="speed" id="speed"></span>
+    <button id="slower" title="Slower (⌘/Ctrl+↓)">−</button>
+    <button id="faster" title="Faster (⌘/Ctrl+↑)">+</button>
+    <button id="saveBackup">Download save games</button>
+    <button id="fullscreen" title="⌘/Ctrl+F">Full screen</button>
+  </div>
+</section>
+
+<script src="wc.js"></script>
+<script>
+"use strict";
+const log = (...a) => console.log("[wc]", ...a);
+const $ = (id) => document.getElementById(id);
+
+// The WC.EXE the recompiled code was made from (GOG's release).
+const WC_EXE_SHA256 = "c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca";
+
+// ---- cross-origin isolation: the emulation's thread needs SharedArrayBuffer ----
+
+async function ensureIsolated() {
+  if (crossOriginIsolated) { sessionStorage.removeItem("wc-sw-reload"); return true; }
+  if ("serviceWorker" in navigator && !sessionStorage.getItem("wc-sw-reload")) {
+    log("not cross-origin isolated: installing sw.js and reloading");
+    sessionStorage.setItem("wc-sw-reload", "1");
+    await navigator.serviceWorker.register("sw.js");
+    await navigator.serviceWorker.ready;
+    location.reload();
+    return false;
+  }
+  showMessage("This page needs to be cross-origin isolated (COOP/COEP headers), and the service worker " +
+    "that adds them couldn't run. Serve it with `npm run serve`, over https or from localhost.");
+  return false;
+}
+
+// ---- IndexedDB: "files" holds the uploaded game files, "saves" what the game wrote ----
+
+let dbPromise;
+function db() {
+  dbPromise ??= new Promise((resolve, reject) => {
+    const req = indexedDB.open("wing-commander", 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore("files"); req.result.createObjectStore("saves"); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+async function tx(store, mode, fn) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const t = d.transaction(store, mode);
+    const result = fn(t.objectStore(store));
+    t.oncomplete = () => resolve(result?.result ?? result);
+    t.onerror = () => reject(t.error);
+  });
+}
+const put = (store, key, value) => tx(store, "readwrite", (s) => { s.put(value, key); });
+const del = (store, key) => tx(store, "readwrite", (s) => { s.delete(key); });
+const clear = (store) => tx(store, "readwrite", (s) => { s.clear(); });
+async function getAll(store) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const out = new Map();
+    const req = d.transaction(store).objectStore(store).openCursor();
+    req.onsuccess = () => {
+      const c = req.result;
+      if (!c) { resolve(out); return; }
+      out.set(c.key, new Uint8Array(c.value));
+      c.continue();
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ---- importing the game folder ----
+
+// Where an uploaded file goes in the game folder: GAMEDAT's files under GAMEDAT/, the programs and
+// configuration (*.EXE, *.CFG) at the top; manuals, DOSBox and GOG files are left out.
+function gamePath(relative) {
+  const parts = relative.split(/[\\/]/).filter(Boolean);
+  const name = parts.at(-1);
+  const i = parts.findIndex((p) => p.toUpperCase() === "GAMEDAT");
+  if (i >= 0 && i < parts.length - 1) return "GAMEDAT/" + parts.slice(i + 1).join("/");
+  if (/\.(exe|cfg)$/i.test(name)) return name;
+  if (parts.length === 1 && !/\.(pdf|conf|ins|ico|txt|dll|zip|info|ini|bat|url|lnk)$/i.test(name)) return "GAMEDAT/" + name;
+  return null;
+}
+
+async function entriesToFiles(entries) {
+  const files = [];
+  async function walk(entry) {
+    if (entry.isFile) {
+      files.push(await new Promise((res, rej) => entry.file((f) => res([entry.fullPath, f]), rej)));
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      for (;;) {
+        const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        for (const e of batch) await walk(e);
+      }
+    }
+  }
+  for (const e of entries) await walk(e);
+  return files;
+}
+
+async function importFiles(list) {
+  hideMessage();
+  let stored = 0, skipped = 0;
+  for (const [relative, file] of list) {
+    const target = gamePath(relative);
+    if (!target) { skipped++; continue; }
+    await put("files", target, await file.arrayBuffer());
+    stored++;
+  }
+  log(`imported ${stored} files (${skipped} others left out)`);
+  if (!stored) showMessage("None of these look like Wing Commander's files.");
+  await refresh();
+}
+
+const drop = $("drop");
+for (const type of ["dragenter", "dragover"]) {
+  document.addEventListener(type, (e) => { if (!$("setup").hidden) { e.preventDefault(); drop.classList.add("over"); } });
+}
+document.addEventListener("dragleave", (e) => { if (!e.relatedTarget) drop.classList.remove("over"); });
+document.addEventListener("drop", async (e) => {
+  if ($("setup").hidden) return;
+  e.preventDefault();
+  drop.classList.remove("over");
+  const entries = [...e.dataTransfer.items].map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
+  const list = entries.length ? await entriesToFiles(entries) : [...e.dataTransfer.files].map((f) => [f.name, f]);
+  await importFiles(list);
+});
+$("pickDir").onclick = () => $("dirInput").click();
+$("pickFiles").onclick = () => $("fileInput").click();
+$("dirInput").onchange = (e) => importFiles([...e.target.files].map((f) => [f.webkitRelativePath || f.name, f]));
+$("fileInput").onchange = (e) => importFiles([...e.target.files].map((f) => [f.name, f]));
+
+// ---- what we have ----
+
+async function sha256(bytes) {
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...hash].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function refresh() {
+  const files = await getAll("files");
+  const saves = await getAll("saves");
+  const find = (name) => [...files.keys()].find((k) => k.toUpperCase() === name);
+  const status = $("status");
+  status.textContent = "";
+  const item = (cls, text) => { const li = document.createElement("li"); li.className = cls; li.textContent = text; status.append(li); };
+  const exe = find("WC.EXE");
+  let ready = !!exe;
+  if (!exe) item("bad", "WC.EXE is missing");
+  else if (await sha256(files.get(exe)) !== WC_EXE_SHA256) item("bad", "WC.EXE isn't the GOG release's: it will probably not run");
+  else item("ok", "WC.EXE (GOG release)");
+  const gamedat = [...files.keys()].filter((k) => k.toUpperCase().startsWith("GAMEDAT/")).length;
+  if (gamedat) item("ok", `GAMEDAT: ${gamedat} files`);
+  else { item("bad", "GAMEDAT is missing"); ready = false; }
+  item(find("WINGCMDR.CFG") ? "ok" : "", find("WINGCMDR.CFG") ? "WINGCMDR.CFG" : "No WINGCMDR.CFG: AdLib music is used");
+  if (saves.size) item("ok", `Saved in this browser: ${[...saves.keys()].join(", ")}`);
+  $("start").disabled = !ready;
+  $("forget").hidden = !files.size;
+  $("downloadSaves").hidden = !saves.size && !find("GAMEDAT/SAVEGAME.WLD");
+}
+
+$("forget").onclick = async () => {
+  if (!confirm("Forget the game files? Save games made in this browser are kept.")) return;
+  await clear("files");
+  await refresh();
+};
+
+async function downloadSaves() {
+  const files = await getAll("files");
+  const saves = await getAll("saves");
+  const all = new Map([...files].filter(([k]) => k.toUpperCase() === "GAMEDAT/SAVEGAME.WLD"));
+  for (const [k, v] of saves) all.set(k, v);
+  for (const [path, data] of all) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([data]));
+    a.download = path.split("/").at(-1);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+}
+$("downloadSaves").onclick = downloadSaves;
+$("saveBackup").onclick = downloadSaves;
+
+function showMessage(text) { $("message").textContent = text; $("message").hidden = false; }
+function hideMessage() { $("message").hidden = true; }
+
+// ---- sound: an AudioWorklet reading the emulation's ring buffer in the shared memory ----
+
+const workletSource = `
+class WcAudio extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.pos = 0;
+    this.playing = false;
+    this.port.onmessage = (e) => {
+      this.u32 = new Uint32Array(e.data.memory);
+      this.s16 = new Int16Array(e.data.memory);
+      this.info = e.data.info >> 2;
+    };
+  }
+  process(inputs, outputs) {
+    const left = outputs[0][0], right = outputs[0][1] || left;
+    left.fill(0); right.fill(0);
+    if (!this.u32) return true;
+    const u32 = this.u32, s16 = this.s16, info = this.info;
+    const ring = u32[info] >> 1, size = u32[info + 1], rate = Atomics.load(u32, info + 4);
+    if (!rate) return true;
+    const written = Atomics.load(u32, info + 2);
+    let read = Atomics.load(u32, info + 3);
+    let queued = (written - read) >>> 0;
+    if (queued > rate / 4) { read = (written - Math.floor(rate * 0.06)) >>> 0; queued = (written - read) >>> 0; }
+    if (!this.playing && queued < rate * 0.04) return true; // gather 40 ms first
+    this.playing = true;
+    const step = rate / sampleRate;
+    for (let i = 0; i < left.length; i++) {
+      if (((written - read) >>> 0) < 2) { this.playing = false; break; }
+      const a = (read % size) * 2, b = ((read + 1) % size) * 2, f = this.pos;
+      left[i] = (s16[ring + a] * (1 - f) + s16[ring + b] * f) / 32768;
+      right[i] = (s16[ring + a + 1] * (1 - f) + s16[ring + b + 1] * f) / 32768;
+      this.pos += step;
+      while (this.pos >= 1) { this.pos -= 1; read = (read + 1) >>> 0; }
+    }
+    Atomics.store(u32, info + 3, read);
+    return true;
+  }
+}
+registerProcessor("wc-audio", WcAudio);`;
+
+async function startSound(audio, wc) {
+  try {
+    await audio.audioWorklet.addModule(URL.createObjectURL(new Blob([workletSource], { type: "text/javascript" })));
+    const node = new AudioWorkletNode(audio, "wc-audio", { numberOfInputs: 0, outputChannelCount: [2] });
+    node.port.postMessage({ memory: wc.HEAPU8.buffer, info: wc._web_audio_info() });
+    node.connect(audio.destination);
+    await audio.resume();
+    log(`sound: ${audio.sampleRate} Hz`);
+  } catch (e) {
+    log("no sound:", e);
+  }
+}
+
+// ---- keyboard: KeyboardEvent.code (USB positions) to PC scancodes, set 1 ----
+
+const scancodes = {
+  Escape: 0x01, Minus: 0x0c, Equal: 0x0d, Backspace: 0x0e, Tab: 0x0f, BracketLeft: 0x1a, BracketRight: 0x1b,
+  Enter: 0x1c, ControlLeft: 0x1d, ControlRight: 0x1d, Semicolon: 0x27, Quote: 0x28, Backquote: 0x29,
+  ShiftLeft: 0x2a, Backslash: 0x2b, Comma: 0x33, Period: 0x34, Slash: 0x35, ShiftRight: 0x36,
+  NumpadMultiply: 0x37, AltLeft: 0x38, AltRight: 0x38, Space: 0x39, CapsLock: 0x3a, NumLock: 0x45,
+  ScrollLock: 0x46, Numpad7: 0x47, Numpad8: 0x48, Numpad9: 0x49, NumpadSubtract: 0x4a, Numpad4: 0x4b,
+  Numpad5: 0x4c, Numpad6: 0x4d, NumpadAdd: 0x4e, Numpad1: 0x4f, Numpad2: 0x50, Numpad3: 0x51, Numpad0: 0x52,
+  NumpadDecimal: 0x53, NumpadEnter: 0x1c, NumpadDivide: 0x35, IntlBackslash: 0x56, F11: 0x57, F12: 0x58,
+  // the grey keys as their keypad twins (no E0 prefix), which every DOS game understands
+  Home: 0x47, ArrowUp: 0x48, PageUp: 0x49, ArrowLeft: 0x4b, ArrowRight: 0x4d, End: 0x4f, ArrowDown: 0x50,
+  PageDown: 0x51, Insert: 0x52, Delete: 0x53,
+};
+"1234567890".split("").forEach((d, i) => { scancodes["Digit" + d] = 0x02 + i; });
+["qwertyuiop", "asdfghjkl", "zxcvbnm"].forEach((row, r) =>
+  row.split("").forEach((c, i) => { scancodes["Key" + c.toUpperCase()] = [0x10, 0x1e, 0x2c][r] + i; }));
+for (let i = 1; i <= 10; i++) scancodes["F" + i] = 0x3a + i;
+
+// ---- running the game ----
+
+async function start() {
+  // created during the click, so the browser lets it play
+  const audio = new AudioContext({ latencyHint: "interactive" });
+  $("start").disabled = true;
+  const files = await getAll("files");
+  const saves = await getAll("saves");
+  if (![...files.keys()].some((k) => k.toUpperCase() === "WINGCMDR.CFG")) {
+    files.set("WINGCMDR.CFG", new TextEncoder().encode("v a904 z\r\n")); // AdLib music
+  }
+  const canvas = $("canvas");
+  let wc;
+  const config = {
+    arguments: ["/game"],
+    print: (t) => console.log(t),
+    printErr: (t) => console.log(t),
+    preRun: [(m) => {
+      const write = (path, data) => {
+        const parts = path.split("/");
+        let dir = "/game";
+        for (const p of parts.slice(0, -1)) { dir += "/" + p; try { m.FS.mkdir(dir); } catch {} }
+        m.FS.writeFile("/game/" + path, data);
+      };
+      m.FS.mkdir("/game");
+      for (const [path, data] of files) write(path, data);
+      for (const [path, data] of saves) write(path, data); // made in this browser: they win
+      for (const [k, v] of new URLSearchParams(location.search)) if (k.startsWith("WC_")) m.ENV[k] = v; // e.g. ?WC_TRACE=1
+      log(`game folder: ${files.size} files, ${saves.size} kept from earlier sessions`);
+    }],
+    // The game wrote (or deleted) a file: keep it for the next session.
+    fileSaved: (path) => {
+      const key = path.replace(/^\/game\//, "");
+      let data = null;
+      try { data = wc.FS.readFile(path).slice().buffer; } catch {}
+      (data ? put("saves", key, data) : del("saves", key))
+        .then(() => log(`${data ? "kept" : "removed"} ${key} in IndexedDB`))
+        .catch((e) => console.error("[wc] couldn't keep", key, e));
+    },
+    onExit: (code) => {
+      log(`the game ended (${code})`);
+      if (document.fullscreenElement) document.exitFullscreen();
+      $("game").hidden = true;
+      $("setup").hidden = false;
+      showMessage("The game has ended. Reload the page to play again.");
+      refresh();
+    },
+  };
+  try {
+    wc = await WingCommander(config);
+  } catch (e) {
+    console.error("[wc]", e);
+    showMessage("The game couldn't start: " + e);
+    return;
+  }
+  window.wc = wc; // for debugging in the console
+  $("setup").hidden = true;
+  $("game").hidden = false;
+  canvas.focus();
+  startSound(audio, wc);
+  run(wc, canvas);
+}
+
+function run(wc, canvas) {
+  const ctx = canvas.getContext("2d");
+  const image = ctx.createImageData(320, 200);
+  const draw = () => {
+    const p = wc._web_frame();
+    if (p) {
+      image.data.set(wc.HEAPU8.subarray(p, p + 320 * 200 * 4));
+      ctx.putImageData(image, 0, 0);
+    }
+    requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
+
+  const showSpeed = () => {
+    const c = wc._web_cycles(0);
+    $("speed").textContent = c ? `${c} cycles/ms · ${wc._web_flight_fps()} fps in flight` : "max speed";
+  };
+  const speed = (change) => { wc._web_cycles(change); showSpeed(); };
+  showSpeed();
+  $("slower").onclick = () => { speed(-1); canvas.focus(); };
+  $("faster").onclick = () => { speed(1); canvas.focus(); };
+
+  // Full screen: the pointer is locked, the game gets the mouse's movement, and (in Chrome) Esc
+  // goes to the game too (hold Esc to leave full screen).
+  const screen = $("screen");
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) { await document.exitFullscreen(); return; }
+      await screen.requestFullscreen();
+      await canvas.requestPointerLock?.();
+    } catch (e) {
+      log("full screen:", e.message || e);
+    }
+  };
+  $("fullscreen").onclick = toggleFullscreen;
+  document.addEventListener("fullscreenchange", () => {
+    if (document.fullscreenElement) navigator.keyboard?.lock?.(["Escape"]).catch(() => {});
+    else navigator.keyboard?.unlock?.();
+    canvas.focus();
+  });
+
+  // Cmd on a Mac, Ctrl elsewhere (where Cmd/Windows keys aren't the browser's)
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+  const shortcut = (e) => (mac ? e.metaKey : e.ctrlKey);
+  const held = new Set();
+  const releaseAll = () => { for (const code of held) wc._web_key(scancodes[code] | 0x80); held.clear(); };
+  window.addEventListener("keydown", (e) => {
+    if ($("game").hidden) return;
+    if (shortcut(e) && ["ArrowUp", "ArrowDown", "KeyF"].includes(e.code)) {
+      e.preventDefault();
+      if (e.code === "KeyF") toggleFullscreen(); else speed(e.code === "ArrowUp" ? 1 : -1);
+      return;
+    }
+    if (e.metaKey) return; // Cmd: for the browser
+    const sc = scancodes[e.code];
+    if (!sc) return;
+    e.preventDefault();
+    held.add(e.code);
+    wc._web_key(sc); // repeats too, like a PC keyboard's typematic
+  });
+  window.addEventListener("keyup", (e) => {
+    if (!held.has(e.code)) return;
+    e.preventDefault();
+    held.delete(e.code);
+    wc._web_key(scancodes[e.code] | 0x80);
+  });
+  window.addEventListener("blur", releaseAll);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
+
+  // Mouse: in a window the picture under the pointer; in full screen (locked) the movement.
+  // A press somewhere new without a move before it (a tap on a touch screen) moves the pointer
+  // first and presses 40 ms later: the game reads the buttons before the position.
+  const queue = [];
+  let flushing = false, sentX = -1, sentY = -1, sentButtons = 0;
+  const send = (fn) => { queue.push(fn); if (!flushing) flush(); };
+  const flush = () => {
+    flushing = true;
+    while (queue.length) {
+      const wait = queue.shift()();
+      if (wait) { setTimeout(flush, wait); return; }
+    }
+    flushing = false;
+  };
+  const moveTo = (x, y, buttons) => {
+    if ((x !== sentX || y !== sentY) && buttons !== sentButtons) {
+      const old = sentButtons;
+      send(() => { wc._web_mouse(x, y, old); return 40; });
+    }
+    sentX = x; sentY = y; sentButtons = buttons;
+    send(() => { wc._web_mouse(x, y, buttons); });
+  };
+  let fx = 0, fy = 0;
+  const mouse = (e) => {
+    const r = canvas.getBoundingClientRect();
+    if (document.pointerLockElement === canvas) {
+      fx += e.movementX * 320 / r.width;
+      fy += e.movementY * 200 / r.height;
+      const dx = Math.trunc(fx), dy = Math.trunc(fy);
+      fx -= dx; fy -= dy;
+      send(() => { wc._web_mouse_move(dx, dy, e.buttons & 7); });
+      sentButtons = e.buttons & 7;
+      return;
+    }
+    const x = Math.floor((e.clientX - r.left) * 320 / r.width), y = Math.floor((e.clientY - r.top) * 200 / r.height);
+    moveTo(Math.max(0, Math.min(319, x)), Math.max(0, Math.min(199, y)), e.buttons & 7);
+  };
+  for (const type of ["mousemove", "mousedown", "mouseup"]) {
+    document.addEventListener(type, (e) => {
+      if (document.pointerLockElement === canvas || e.target === canvas) mouse(e);
+    });
+  }
+  canvas.addEventListener("mousedown", () => {
+    canvas.focus();
+    if (document.fullscreenElement && document.pointerLockElement !== canvas) {
+      Promise.resolve(canvas.requestPointerLock?.()).catch((e) => log("pointer lock:", e.message || e));
+    }
+  });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+
+$("start").onclick = start;
+
+(async () => {
+  if (!(await ensureIsolated())) return;
+  try {
+    if (navigator.storage?.persist && !(await navigator.storage.persisted())) {
+      log("persistent storage:", await navigator.storage.persist());
+    }
+    await refresh();
+  } catch (e) {
+    console.error("[wc]", e);
+    showMessage("IndexedDB isn't available here: " + e);
+  }
+})();
+</script>
+</body>
+</html>

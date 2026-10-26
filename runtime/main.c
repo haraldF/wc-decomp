@@ -15,7 +15,9 @@
  *   WC_STATS=1      print the frame rate in flight every second */
 #include <libgen.h>
 #include <limits.h>
+#ifndef __EMSCRIPTEN__
 #include <mach-o/dyld.h>
+#endif
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -120,12 +122,16 @@ int main(int argc, char **argv)
 {
 	signal(SIGINT, on_signal);
 	signal(SIGTERM, on_signal);
+#ifdef __EMSCRIPTEN__
+	const char *dir = "/wc"; /* image.bin and relocs.bin are embedded there */
+#else
 	char exe[PATH_MAX];
 	uint32_t size = sizeof exe;
 	if (_NSGetExecutablePath(exe, &size) != 0) {
 		snprintf(exe, sizeof exe, "%s", argv[0]);
 	}
 	const char *dir = dirname(exe);
+#endif
 
 	const char *trace = getenv("WC_TRACE");
 	wc_trace = trace ? atoi(trace) : 0;

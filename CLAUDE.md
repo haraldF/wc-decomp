@@ -53,7 +53,7 @@ captured driver images (`out/loaded/*.bin`), `image.bin`/`relocs.bin`, the Borla
   main menu with music on. Flight simulator, name entry and the rec room:
   `...,1400:+space,1406:-space,1600:b,1610:l,1620:a,1630:i,1640:r,1660:enter,1700:m,1710:a,
   1720:v,1740:enter,2000:+space,2006:-space` (after the campaign-start keys).
-- The menus sample keys, so a tap (make and break at once) is often missed: hold keys for a few
+- The menus sample keys, so a scripted tap (make and break at once) is often missed: hold keys for a few
   ticks (`+up`/`-up`). Held keys repeat like a PC keyboard (after 0.5 s, ~11/s); the pointer in
   the rooms moves only on repeats, e.g. `2300:+right,2500:-right` reaches "Enter barracks". Starting the campaign: `WC_KEYS=1000:esc,1100:esc,1300:+up,1306:-up,
   1320:+up,1326:-up,1340:+up,1346:-up,1360:+up,1366:-up,1400:+space,1406:-space`.
@@ -149,7 +149,8 @@ x86 real-mode modelling bugs the scripts work around:
 - Mouse (runtime/mouse.c): the game resets it (INT 33h AX=0), then polls AX=3 constantly and
   sets the position with AX=4 (e.g. to 320,100); positions are in the driver's 640x200 space in
   mode 13h. Window events arrive over a lock-free ring; a click is reported until the program has
-  read the buttons once, so polling never misses it. Headless: WC_MOUSE=1 and WC_KEYS entries
+  read the buttons once, and one shorter than 60 ms is reported as held for 60 ms (the barracks
+  missed instant clicks even so: WC_KEYS `lmb` taps work now). Headless: WC_MOUSE=1 and WC_KEYS entries
   `@x.y` (move, 320x200), `lmb`/`rmb` (+/- to hold/release). Clicking "Start Vega Campaign":
   `WC_KEYS=1000:esc,1100:esc,1300:@160.55,1350:+lmb,1356:-lmb` (at WC_CYCLES=max).
 - BDA 0x463 must be 0x3D4 (CRTC base) or the retrace wait polls port 6. Port 3DA toggles.
@@ -212,9 +213,34 @@ The intro runs natively (~400–600 M instructions/s); a frame-buffer screenshot
 The SDL3 window shows it live, takes the keyboard and mouse, and plays AdLib music. Missing:
 MT-32 / Sound Blaster digital sound, text mode, joystick.
 
-Web later: the thread split maps to Emscripten `PROXY_TO_PTHREAD`; avoid Asyncify.
-Sound via Nuked-OPL3 (LGPL) on 388h/389h, later libmt32emu — not DOSBox Staging's audio code (GPL,
+The same runs in the browser (`npm run web`, see below). Sound via Nuked-OPL3 (LGPL) on 388h/389h, later libmt32emu — not DOSBox Staging's audio code (GPL,
 tied to its mixer).
+
+## Web (runtime/host_web.c, web/index.html)
+
+- Same emulation, Emscripten build of the same CMakeLists (`npm run web`: emcmake, `out/build-web`,
+  output `out/web`: index.html, sw.js, wc.js, wc.wasm ~28 MB; compiles in seconds). `host_web.c`
+  replaces `host_sdl.c`; `main()` starts the game pthread and returns (`emscripten_exit_with_live_runtime`),
+  no Asyncify, no PROXY_TO_PTHREAD. The page calls `web_frame()` per animation frame (RGBA) and
+  `web_key`/`web_mouse`/`web_cycles`; sound is a ring of 16-bit stereo frames in the shared memory
+  that an AudioWorklet reads (`web_audio_info()`: ring, size, written, read, rate) and resamples.
+- The game thread's C stack: measured at most ~2 KB natively (intro, menus, campaign, flight); the
+  web build gives it 16 MB (the native 256 MB is far more than needed).
+- pthreads need SharedArrayBuffer, i.e. a cross-origin isolated page: `npm run serve` sends
+  COOP/COEP; elsewhere `sw.js` (a service worker) adds them and the page reloads once.
+- Game files: dropped/picked in the page, stored in IndexedDB ("files"), written to MEMFS `/game`
+  at start; WC.EXE is checked by SHA-256 in the page. Files the game writes: `dos.c` tracks changed
+  handles and calls `host_file_saved()` on close/delete; the page copies them to IndexedDB
+  ("saves"), which overrides "files" at the next start. SAVEGAME.WLD also holds the high scores.
+- URL parameters `WC_*` become environment variables (`?WC_STATS=1`, `?WC_TRACE=1`); stdout and
+  stderr go to console.log. In flight the browser holds 15-16 fps like native.
+- Browser automation sends clicks/keys with press and release at once and clicks without a move
+  first; the game missed those (also natively with WC_KEYS taps). Fixed for everyone: the mouse
+  driver reports a click shorter than 60 ms as 60 ms long, host keys released within 60 ms have
+  their break code held back, and the page moves the pointer 40 ms before a press somewhere new.
+- The built page contains the recompiled game (and the drivers' bytes, image.bin): don't publish
+  `out/web`; it's for your own use like `out/bin/wc`.
+- The app's browser pane refuses full screen ("Permissions check failed"); test that in a browser.
 
 ## Save games and the campaign (src/mission.ts)
 

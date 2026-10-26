@@ -14,7 +14,9 @@
     "build": "node src/cli.ts build",
     "typecheck": "tsc --noEmit",
     "discover": "node src/cli.ts discover",
-    "mission": "node src/mission.ts"
+    "mission": "node src/mission.ts",
+    "web": "node src/cli.ts web",
+    "serve": "node src/serve.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

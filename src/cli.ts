@@ -6,6 +6,7 @@
 //   redecompile  re-run only the C export on the existing Ghidra project (after you rename/retype in the GUI)
 //   recomp       translate the analyzed program to compilable C (out/recomp/) and build out/bin/wc
 //   build        only (re)build out/bin/wc from out/recomp/ and runtime/ (CMake, in out/build/)
+//   web          build the web page in out/web/ from out/recomp/ and runtime/ (Emscripten, in out/build-web/)
 //   discover     run out/bin/wc; when it reaches code that wasn't recompiled (reached only through
 //                pointers in data), add that entry point to entries.txt, recompile, repeat;
 //                when it calls code the game loaded at runtime (drivers), capture it to out/loaded/
@@ -99,16 +100,19 @@ const doRecomp = async (): Promise<void> => {
   writeDriverList(drivers);
   await doBuild();
 };
-const doBuild = async (): Promise<void> => {
-  const buildDir = path.join(out, "build");
+/** Configure (once) and build with CMake; web: with Emscripten, into out/web. */
+const cmakeBuild = async (web: boolean): Promise<void> => {
+  const buildDir = path.join(out, web ? "build-web" : "build");
+  const binDir = path.join(out, web ? "web" : "bin");
   if (!existsSync(path.join(buildDir, "CMakeCache.txt"))) {
     const ninja = spawnSync("ninja", ["--version"]).status === 0 ? ["-G", "Ninja"] : [];
-    await exec("cmake", ["-S", root, "-B", buildDir, ...ninja,
-      `-DWC_RECOMP_DIR=${recompDir}`, `-DWC_BIN_DIR=${path.join(out, "bin")}`]);
+    const args = ["-S", root, "-B", buildDir, ...ninja, `-DWC_RECOMP_DIR=${recompDir}`, `-DWC_BIN_DIR=${binDir}`];
+    await (web ? exec("emcmake", ["cmake", ...args]) : exec("cmake", args));
   }
   await exec("cmake", ["--build", buildDir]);
-  console.log(`built ${wcExe}`);
+  console.log(`built ${web ? path.join(binDir, "index.html") : wcExe}`);
 };
+const doBuild = (): Promise<void> => cmakeBuild(false);
 const borlandProjectDir = path.join(out, "borland");
 const fidb = path.join(out, "borland-tc10.fidb");
 // Medium memory model runtime, startup code and overlay manager, as linked into WC.EXE.
@@ -188,6 +192,9 @@ async function main(): Promise<void> {
     case "build":
       await doBuild();
       break;
+    case "web":
+      await cmakeBuild(true);
+      break;
     case "discover": {
       mkdirSync(capturesDir, { recursive: true });
       for (let round = 1; round <= 50; round++) {
@@ -249,7 +256,7 @@ async function main(): Promise<void> {
       break;
     }
     default:
-      console.error("usage: node src/cli.ts <flatten|fid|decompile|redecompile|recomp|build> [--exe WC.EXE] [--borland dir] [--out dir]");
+      console.error("usage: node src/cli.ts <flatten|fid|decompile|redecompile|recomp|build|web|discover> [--exe WC.EXE] [--borland dir] [--out dir]");
       process.exit(2);
   }
 }

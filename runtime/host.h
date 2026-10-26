@@ -1,5 +1,5 @@
 /* The host platform around the emulated PC: a window with the VGA picture and the keyboard
- * (host_sdl.c). The emulation never includes SDL; it runs on a thread of its own while the host
+ * (host_sdl.c; host_web.c in the browser). The emulation never includes SDL; it runs on a thread of its own while the host
  * owns the main thread, which macOS needs for windows (and Emscripten for the canvas). */
 #pragma once
 #include <stdint.h>
@@ -26,6 +26,9 @@ void pc_mouse(int x, int y, int buttons);
 void pc_mouse_move(int dx, int dy, int buttons);
 /* Provided by the host: whether there is a mouse (a window, or WC_MOUSE=1 for tests). */
 int host_has_mouse(void);
+/* A file in the game folder was written (on closing it) or deleted: the web host keeps such files
+ * (save games) across sessions. Called on the emulation's thread. */
+void host_file_saved(const char *path);
 /* Sound: 16-bit stereo at rate. host_audio_open returns 0 when there is no sound output. */
 int host_audio_open(unsigned rate);
 void host_audio(const int16_t *frames, unsigned count);

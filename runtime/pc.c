@@ -235,6 +235,10 @@ static void parse_script(const char *s)
 /* Keys from the host's window, on its thread: a single-producer, single-consumer ring. */
 static uint8_t host_keys[256];
 static _Atomic uint32_t host_keys_head, host_keys_tail;
+/* The game samples keys in its menus, so a key released this soon after it went down (a quick tap,
+ * a browser's synthetic key press) has its release held back until then. */
+enum { MIN_KEY_NS = 60000000 };
+static uint64_t key_down_ns[128];
 
 void pc_key(uint8_t scancode)
 {
@@ -282,7 +286,12 @@ static void poll_keyboard(void)
 	}
 	uint32_t head = atomic_load_explicit(&host_keys_head, memory_order_relaxed);
 	while (head != atomic_load_explicit(&host_keys_tail, memory_order_acquire)) {
-		kbd_push(host_keys[head++ % sizeof host_keys]);
+		uint8_t code = host_keys[head % sizeof host_keys];
+		uint64_t now = pc_now_ns();
+		if (!(code & 0x80)) key_down_ns[code] = now;
+		else if (now - key_down_ns[code & 0x7f] < MIN_KEY_NS) break; /* later keys wait behind it */
+		kbd_push(code);
+		head++;
 	}
 	atomic_store_explicit(&host_keys_head, head, memory_order_release);
 	if (kbd_tty) {

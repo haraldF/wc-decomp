@@ -13,6 +13,7 @@ Prerequisites (Homebrew):
 
 ```bash
 brew install node ghidra cmake ninja sdl3   # Node 23.6 or later; Ghidra 12.2 brings its JDK
+brew install emscripten                     # only for the web page (npm run web)
 git submodule update --init                 # Nuked-OPL3, for AdLib sound
 npm ci
 ```
@@ -199,6 +200,31 @@ starts) with a series history along a path through the tree, preferring won seri
 medals and rank are those of a new pilot. `--game dir` picks another game folder, `--title` the
 name shown in the barracks. Secret Missions 2 isn't run by `WC.EXE` (it's `SM2.EXE`), so it can't
 be chosen.
+
+## In the browser (WebAssembly)
+
+The same runtime builds with [Emscripten](https://emscripten.org) (`brew install emscripten`) into a
+web page: `runtime/host_web.c` takes the place of the SDL window, and `web/index.html` shows the
+picture on a canvas (full screen with ⌘/Ctrl+F or the button; the pointer is captured there), passes
+the keyboard and mouse to the game and plays the AdLib music with an AudioWorklet.
+
+```bash
+npm run recomp && npm run discover   # as for the native build, if not done yet
+npm run web                          # out/web: index.html, wc.js, wc.wasm, sw.js
+npm run serve                        # http://localhost:8080
+```
+
+On the page, drop your game folder (or choose it, or its files): the files are kept in the browser's
+IndexedDB, so this is needed once. Whatever the game writes (save games, high scores, in
+`SAVEGAME.WLD`) goes to IndexedDB as well and is there again after a reload, also when you give the
+page the game files anew; "Download save games" makes a copy. The page asks the browser to keep its
+storage persistent, but a browser may still clear it, so keep copies of save games you care about.
+Logs go to the browser console; URL parameters set the `WC_*` variables (`?WC_STATS=1`).
+
+The emulation runs on a thread of its own, which needs `SharedArrayBuffer`, so the page has to be
+cross-origin isolated: `npm run serve` sends the headers for that, and on a static host that can't,
+`sw.js` adds them (the page reloads once). The built page contains the recompiled game, so like
+`out/bin/wc` it's for your own use, not for publishing.
 
 ## Expect pseudocode, not compilable C
 

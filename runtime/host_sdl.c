@@ -240,6 +240,12 @@ void host_audio(const int16_t *frames, unsigned count)
 	SDL_PutAudioStreamData(audio, frames, (int)count * 4);
 }
 
+/* Files the game writes are in the game folder already. */
+void host_file_saved(const char *path)
+{
+	(void)path;
+}
+
 /* ---- threads ---- */
 
 static void *game_thread(void *arg)
