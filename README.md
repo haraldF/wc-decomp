@@ -196,6 +196,7 @@ npm run mission -- --list                 # the mission trees of the Vega campai
 npm run mission -- gimle.2                # series by its system's name (or number), mission from 1
 npm run mission -- sm1:midgard.1 --name Blair --callsign Maverick
 npm run mission -- --slot 3 venice.4      # needed when no slot is free: overwrites slot 3
+npm run mission -- --slot 6 --move gateway.1  # move that save game there, keeping its pilot
 ```
 
 The save holds a new pilot's state (taken from `WC.EXE`, as the game copies it when a campaign

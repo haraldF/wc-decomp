@@ -8,10 +8,13 @@
 //   --slot n         slot to write (1-8); needed when no slot is free, and then it is overwritten
 //   --title text     the save game's name (default: system and mission)
 //   --name, --callsign  the pilot (default: the game's own)
+//   --move           with --slot: move that save game to the mission instead, keeping its pilot
+//                    (kills, rank, medals, wingmen), name and date
 //
 // The save holds the state of a new campaign, taken from the game's WC.EXE (as the game copies it when
 // a campaign starts), with the series and mission set and a series history along a path through
-// the tree to them (preferring won series). Scores, kills, medals and rank are those of a new pilot.
+// the tree to them (preferring won series). Scores, kills, medals and rank are those of a new pilot
+// (or, with --move, the save game's).
 // SAVEGAME.WLD is copied to SAVEGAME.BAK before it is changed.
 
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -29,6 +32,7 @@ const { positionals, values } = parseArgs({
     title: { type: "string" },
     name: { type: "string" },
     callsign: { type: "string" },
+    move: { type: "boolean", default: false },
   },
 });
 
@@ -50,6 +54,7 @@ const SERIES = 0x16;        // from 1
 const HISTORY_COUNT = 0x17; // series completed so far
 const HISTORY = 0x18;       // ... and which (8 bytes)
 const DAY = 0x34, YEAR = 0x36;
+const SERIES_SCORE = 0x40;  // word, from 0 in each series
 const CAMPAIGN = 0x42;      // 0 Vega, 1 the Secret Missions (CAMP.000, CAMP.001)
 
 // Where WC.EXE's data segment keeps the new-campaign state the game copies (ovl17_10c9).
@@ -232,7 +237,11 @@ function writeSave(spec: string): void {
   }
 
   const overwritten = used(slot);
-  const { roster, state } = newCampaignState();
+  const at = slot * SLOT_SIZE;
+  if (values.move && (values.slot === undefined || !overwritten)) throw new Error("--move needs --slot n of a save game");
+  const { roster, state } = values.move
+    ? { roster: Buffer.from(wld.subarray(at + ROSTER, at + ROSTER + ROSTER_SIZE)), state: Buffer.from(wld.subarray(at + STATE, at + STATE + STATE_SIZE)) }
+    : newCampaignState();
   const player = PLAYER * PILOT_SIZE;
   if (values.name !== undefined) setString(roster, player, 14, values.name, "name");
   if (values.callsign !== undefined) setString(roster, player + 14, 14, values.callsign, "callsign");
@@ -240,19 +249,22 @@ function writeSave(spec: string): void {
   state[SERIES] = target;
   state[MISSION] = mission - 1;
   if (route.status >= 0) state[WAR_STATUS] = route.status;
+  state.fill(0, HISTORY, HISTORY + 8);
   state[HISTORY_COUNT] = route.history.length;
   route.history.forEach((n, i) => (state[HISTORY + i] = n));
-  // The game moves the date on by about a day per mission, five more for a new series.
-  const flown = route.history.reduce((d, n) => d + series.find((x) => x.number === n)!.missions, 0) + mission - 1;
-  let day = state.readUInt16LE(DAY) + flown + 5 * route.history.length;
-  let year = state.readUInt16LE(YEAR);
-  for (; day > 365; day -= 365) year++;
-  state.writeUInt16LE(day, DAY);
-  state.writeUInt16LE(year, YEAR);
-
-  const at = slot * SLOT_SIZE;
-  wld.fill(0, at, at + SLOT_SIZE);
-  const title = values.title ?? `${campaign ? CAMPAIGNS[campaign].toUpperCase() + " " : ""}${s.name} ${mission}`;
+  state.writeUInt16LE(0, SERIES_SCORE);
+  if (!values.move) {
+    // The game moves the date on by about a day per mission, five more for a new series.
+    const flown = route.history.reduce((d, n) => d + series.find((x) => x.number === n)!.missions, 0) + mission - 1;
+    let day = state.readUInt16LE(DAY) + flown + 5 * route.history.length;
+    let year = state.readUInt16LE(YEAR);
+    for (; day > 365; day -= 365) year++;
+    state.writeUInt16LE(day, DAY);
+    state.writeUInt16LE(year, YEAR);
+    wld.fill(0, at, at + SLOT_SIZE);
+  }
+  const title = values.title ?? (values.move ? wld.toString("latin1", at, at + USED).replace(/\0.*$/s, "")
+    : `${campaign ? CAMPAIGNS[campaign].toUpperCase() + " " : ""}${s.name} ${mission}`);
   setString(wld, at, USED, title.slice(0, USED - 1), "title");
   wld[at + USED] = 1;
   roster.copy(wld, at + ROSTER);
@@ -261,14 +273,14 @@ function writeSave(spec: string): void {
   if (existsSync(file)) copyFileSync(file, path.join(values.game, "GAMEDAT", "SAVEGAME.BAK"));
   writeFileSync(file, wld);
   const via = route.history.map((n) => seriesName(series, n)).join(" > ");
-  console.log(`slot ${slot + 1}${overwritten ? " (overwritten)" : ""}: "${title.slice(0, USED - 1)}", ` +
+  console.log(`slot ${slot + 1}${values.move ? " (moved)" : overwritten ? " (overwritten)" : ""}: "${title.slice(0, USED - 1)}", ` +
     `${CAMPAIGNS[campaign]} series ${seriesName(series, target)}, mission ${mission}${via ? ` (after ${via})` : ""}`);
 }
 
 try {
   if (values.list) listCampaigns();
   else if (positionals.length === 1) writeSave(positionals[0]);
-  else throw new Error("usage: node src/mission.ts [--game dir] (--list | [--slot n] [--title t] [--name n] [--callsign c] <[campaign:]series.mission>)");
+  else throw new Error("usage: node src/mission.ts [--game dir] (--list | [--slot n [--move]] [--title t] [--name n] [--callsign c] <[campaign:]series.mission>)");
 } catch (e) {
   console.error(`mission: ${(e as Error).message}`);
   process.exit(1);
