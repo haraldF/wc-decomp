@@ -232,6 +232,10 @@ tied to its mixer).
   at start; WC.EXE is checked by SHA-256 in the page. Files the game writes: `dos.c` tracks changed
   handles and calls `host_file_saved()` on close/delete; the page copies them to IndexedDB
   ("saves"), which overrides "files" at the next start. SAVEGAME.WLD also holds the high scores.
+- Exiting: the emulation ends through `host_exit()` (DOS 4Ch, errors). In the browser plain exit()
+  from the game thread did nothing visible (the runtime is kept alive: no onExit, no atexit, stdout's
+  last line unflushed), so `host_exit` flushes (fsync for the partial line), tells the page
+  (black screen, out of full screen, "Play again" reloads) and ends the thread with pthread_exit.
 - URL parameters `WC_*` become environment variables (`?WC_STATS=1`, `?WC_TRACE=1`); stdout and
   stderr go to console.log. In flight the browser holds 15-16 fps like native.
 - Browser automation sends clicks/keys with press and release at once and clicks without a move

@@ -459,7 +459,7 @@ static void dos(uint32_t at)
 			fprintf(stderr, "wc: program exited with code %llu\n", AL);
 			cpu_report(stderr);
 		}
-		exit((int)AL);
+		host_exit((int)AL);
 	case 0x4e: /* find first: nothing found */
 		fail_dos(0x12);
 		break;
@@ -470,7 +470,7 @@ static void dos(uint32_t at)
 		fflush(stdout);
 		fprintf(stderr, "wc: unimplemented DOS function INT 21h AH=%02x at %05x\n", ah, at);
 		cpu_report(stderr);
-		exit(2);
+		host_exit(2);
 	}
 }
 
@@ -541,6 +541,6 @@ void dos_int(uint64_t n, uint32_t at)
 		fflush(stdout);
 		fprintf(stderr, "wc: unimplemented interrupt INT %02llxh AX=%04llx at %05x\n", n, AX, at);
 		cpu_report(stderr);
-		exit(2);
+		host_exit(2);
 	}
 }

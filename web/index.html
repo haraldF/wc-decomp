@@ -83,6 +83,7 @@
     <button id="faster" title="Faster (⌘/Ctrl+↑)">+</button>
     <button id="saveBackup">Download save games</button>
     <button id="fullscreen" title="⌘/Ctrl+F">Full screen</button>
+    <button id="again" class="primary" hidden>Play again</button>
   </div>
 </section>
 
@@ -382,15 +383,11 @@ async function start() {
         .then(() => log(`${data ? "kept" : "removed"} ${key} in IndexedDB`))
         .catch((e) => console.error("[wc] couldn't keep", key, e));
     },
-    onExit: (code) => {
-      log(`the game ended (${code})`);
-      if (document.fullscreenElement) document.exitFullscreen();
-      $("game").hidden = true;
-      $("setup").hidden = false;
-      showMessage("The game has ended. Reload the page to play again.");
-      refresh();
-    },
+    // the game exited (to DOS): host_web.c tells us, Emscripten's onExit only in some cases
+    gameExited: (code) => ended(code),
+    onExit: (code) => ended(code),
   };
+  let ended = () => {};
   try {
     wc = await WingCommander(config);
   } catch (e) {
@@ -403,13 +400,16 @@ async function start() {
   $("game").hidden = false;
   canvas.focus();
   startSound(audio, wc);
-  run(wc, canvas);
+  ended = run(wc, canvas, audio);
 }
 
-function run(wc, canvas) {
+/* Shows the game on the canvas and passes the input to it; returns what to do when it has ended. */
+function run(wc, canvas, audio) {
   const ctx = canvas.getContext("2d");
   const image = ctx.createImageData(320, 200);
+  let running = true;
   const draw = () => {
+    if (!running) return;
     const p = wc._web_frame();
     if (p) {
       image.data.set(wc.HEAPU8.subarray(p, p + 320 * 200 * 4));
@@ -453,7 +453,7 @@ function run(wc, canvas) {
   const held = new Set();
   const releaseAll = () => { for (const code of held) wc._web_key(scancodes[code] | 0x80); held.clear(); };
   window.addEventListener("keydown", (e) => {
-    if ($("game").hidden) return;
+    if ($("game").hidden || !running) return;
     if (shortcut(e) && ["ArrowUp", "ArrowDown", "KeyF"].includes(e.code)) {
       e.preventDefault();
       if (e.code === "KeyF") toggleFullscreen(); else speed(e.code === "ArrowUp" ? 1 : -1);
@@ -499,6 +499,7 @@ function run(wc, canvas) {
   };
   let fx = 0, fy = 0;
   const mouse = (e) => {
+    if (!running) return;
     const r = canvas.getBoundingClientRect();
     if (document.pointerLockElement === canvas) {
       fx += e.movementX * 320 / r.width;
@@ -524,6 +525,25 @@ function run(wc, canvas) {
     }
   });
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // The game has ended: a black screen, out of full screen, and a way to start again.
+  return (code) => {
+    if (!running) return;
+    running = false;
+    log(`the game ended${code === undefined ? "" : ` (${code})`}`);
+    releaseAll();
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, 320, 200);
+    canvas.style.cursor = "default";
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    audio.close().catch(() => {});
+    for (const id of ["slower", "faster", "fullscreen"]) $(id).hidden = true;
+    $("speed").textContent = "The game has ended.";
+    $("again").hidden = false;
+    $("again").onclick = () => location.reload();
+    $("again").focus();
+  };
 }
 
 $("start").onclick = start;

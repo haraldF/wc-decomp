@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "host.h"
 #include "wc_rt.h"
 
 uint8_t R[0x400];
@@ -175,7 +176,7 @@ void run(uint32_t linear)
 			}
 		}
 		cpu_report(stderr);
-		exit(5);
+		host_exit(5);
 	}
 	run_code(code_addr(linear));
 }
@@ -216,7 +217,7 @@ void run_code(uint32_t code)
 	fflush(stdout);
 	fprintf(stderr, "wc: missing code at %05x\n", code);
 	cpu_report(stderr);
-	exit(4);
+	host_exit(4);
 }
 
 static void dump_regs(FILE *f)
@@ -262,7 +263,7 @@ _Noreturn void cpu_fail(const char *what, uint32_t at)
 	fflush(stdout);
 	fprintf(stderr, "wc: %s %05x (CS=%04llx)\n", what, at, rd(R_CS, 2));
 	cpu_report(stderr);
-	exit(3);
+	host_exit(3);
 }
 
 _Noreturn void cpu_div0(uint32_t at)

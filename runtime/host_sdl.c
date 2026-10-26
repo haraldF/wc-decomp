@@ -240,6 +240,11 @@ void host_audio(const int16_t *frames, unsigned count)
 	SDL_PutAudioStreamData(audio, frames, (int)count * 4);
 }
 
+_Noreturn void host_exit(int code)
+{
+	exit(code);
+}
+
 /* Files the game writes are in the game folder already. */
 void host_file_saved(const char *path)
 {
@@ -251,7 +256,7 @@ void host_file_saved(const char *path)
 static void *game_thread(void *arg)
 {
 	((void (*)(void))arg)();
-	exit(0);
+	host_exit(0);
 }
 
 _Noreturn void host_run(void (*game)(void))

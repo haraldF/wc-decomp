@@ -7,6 +7,7 @@
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "host.h"
 
@@ -116,10 +117,21 @@ void host_file_saved(const char *path)
 
 /* ---- threads ---- */
 
+/* The game exited (to DOS, or with an error). exit() wouldn't end the program, since the runtime is
+ * kept alive (host_run), nor tell the page: so end this thread and tell the page itself. */
+_Noreturn void host_exit(int code)
+{
+	fflush(stdout);
+	fflush(stderr);
+	fsync(STDOUT_FILENO); /* the console prints lines: also the last one without a newline */
+	MAIN_THREAD_EM_ASM({ if (Module.gameExited) Module.gameExited($0); }, code);
+	pthread_exit(NULL);
+}
+
 static void *game_thread(void *arg)
 {
 	((void (*)(void))arg)();
-	exit(0);
+	host_exit(0);
 }
 
 _Noreturn void host_run(void (*game)(void))

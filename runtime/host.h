@@ -24,6 +24,9 @@ uint64_t pc_flight_fps(void);
 void pc_mouse(int x, int y, int buttons);
 /* Mouse movement by dx, dy picture pixels from wherever the pointer is (full screen). */
 void pc_mouse_move(int dx, int dy, int buttons);
+/* Provided by the host: the program ends with this code (DOS exit, or an error), on the emulation's
+ * thread. */
+_Noreturn void host_exit(int code);
 /* Provided by the host: whether there is a mouse (a window, or WC_MOUSE=1 for tests). */
 int host_has_mouse(void);
 /* A file in the game folder was written (on closing it) or deleted: the web host keeps such files
