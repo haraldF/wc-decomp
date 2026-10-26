@@ -2,6 +2,7 @@
   "name": "wc-decomp",
   "version": "0.1.0",
   "private": true,
+  "license": "BSD-2-Clause",
   "description": "Decompile Wing Commander's WC.EXE (Borland C++ / VROOM overlays) to C with Ghidra",
   "type": "module",
   "scripts": {

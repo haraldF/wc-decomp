@@ -205,3 +205,8 @@ be chosen.
 The output reads like C but won't compile: it has no original names or types, it uses
 segment arithmetic and Ghidra helpers such as `CONCAT22`, and it touches DOS and hardware
 directly (`int 21h`, VGA memory, ports). Treat it as the starting point for a rewrite.
+
+## License
+
+BSD 2-Clause (`LICENSE`), for this repository's code. Nuked-OPL3 (`third_party/`, linked into
+`out/bin/wc`) is LGPL 2.1. Wing Commander itself is not included and remains its owners' property.
