@@ -300,6 +300,9 @@ tied to its mixer).
 - Reads `CRUSADE.CFG` (not WINGCMDR.CFG), saves to `CRUSADE.WLD` (same slot layout). Its campaign
   file table (DS:1F00) has camp.000-002; its campaign is 2. New-campaign template at DS:171C
   (state) / DS:1760 (roster). Series names repeat (Firekka, Corsair, Charon): use numbers.
+- Pilots go from WC to SM2 with GOG's TRANS2.EXE (text mode, not recompiled; only from Venice or
+  SM1 saves, into CRUSADE.WLD). `mission.ts --transfer n` copies the roster of SAVEGAME.WLD's slot
+  n into a new campaign's state instead; SM2 loads it (checked: barracks, briefing).
 - WC.EXE entries mostly don't carry over by bytes (data offsets in the instructions differ);
   the few that matched seeded entries-sm2.txt, plus all driver entries.
 - Copy protection after the intro: "Enter 5:" on a black screen. The question (from INTRO1.DAT,

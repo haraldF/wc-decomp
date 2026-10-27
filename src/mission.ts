@@ -12,11 +12,14 @@
 //   --name, --callsign  the pilot (default: the game's own)
 //   --move           with --slot: move that save game to the mission instead, keeping its pilot
 //                    (kills, rank, medals, wingmen), name and date
+//   --transfer n     start the mission with the pilot (and name) of SAVEGAME.WLD's slot n, e.g. a
+//                    Wing Commander pilot in the Secret Missions 2 (sm2:1.1), like the game's
+//                    TRANSFER.EXE/TRANS2.EXE, which only take pilots from Venice or the Secret Missions
 //
 // The save holds the state of a new campaign, taken from the game's WC.EXE or SM2.EXE (as the game copies it when
 // a campaign starts), with the series and mission set and a series history along a path through
 // the tree to them (preferring won series). Scores, kills, medals and rank are those of a new pilot
-// (or, with --move, the save game's).
+// (or, with --move or --transfer, the save game's).
 // The save file is copied to SAVEGAME.BAK (CRUSADE.BAK) before it is changed.
 
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -35,6 +38,7 @@ const { positionals, values } = parseArgs({
     name: { type: "string" },
     callsign: { type: "string" },
     move: { type: "boolean", default: false },
+    transfer: { type: "string" },
   },
 });
 
@@ -245,9 +249,22 @@ function writeSave(spec: string): void {
   const overwritten = used(slot);
   const at = slot * SLOT_SIZE;
   if (values.move && (values.slot === undefined || !overwritten)) throw new Error("--move needs --slot n of a save game");
+  if (values.move && values.transfer !== undefined) throw new Error("--move and --transfer don't go together");
   const { roster, state } = values.move
     ? { roster: Buffer.from(wld.subarray(at + ROSTER, at + ROSTER + ROSTER_SIZE)), state: Buffer.from(wld.subarray(at + STATE, at + STATE + STATE_SIZE)) }
     : newCampaignState(program);
+  // --transfer: the pilots (the player, with kills, rank and medals, and the wingmen) of a Wing
+  // Commander save game, in a new campaign
+  let from = "";
+  if (values.transfer !== undefined) {
+    const src = Number(values.transfer) - 1;
+    if (!(src >= 0 && src < SLOTS)) throw new Error("--transfer must be 1-8");
+    const wcFile = path.join(values.game, "GAMEDAT", WC.saves);
+    const wc = wcFile === file ? wld : existsSync(wcFile) ? readFileSync(wcFile) : Buffer.alloc(0);
+    if (wc.length !== SLOTS * SLOT_SIZE || wc[src * SLOT_SIZE + USED] === 0) throw new Error(`${WC.saves} has no save game in slot ${src + 1}`);
+    wc.copy(roster, 0, src * SLOT_SIZE + ROSTER, src * SLOT_SIZE + ROSTER + ROSTER_SIZE);
+    from = wc.toString("latin1", src * SLOT_SIZE, src * SLOT_SIZE + USED).replace(/\0.*$/s, "");
+  }
   const player = PLAYER * PILOT_SIZE;
   if (values.name !== undefined) setString(roster, player, 14, values.name, "name");
   if (values.callsign !== undefined) setString(roster, player + 14, 14, values.callsign, "callsign");
@@ -270,7 +287,7 @@ function writeSave(spec: string): void {
     wld.fill(0, at, at + SLOT_SIZE);
   }
   const title = values.title ?? (values.move ? wld.toString("latin1", at, at + USED).replace(/\0.*$/s, "")
-    : `${campaign ? CAMPAIGNS[campaign].toUpperCase() + " " : ""}${s.name} ${mission}`);
+    : from || `${campaign ? CAMPAIGNS[campaign].toUpperCase() + " " : ""}${s.name} ${mission}`);
   setString(wld, at, USED, title.slice(0, USED - 1), "title");
   wld[at + USED] = 1;
   roster.copy(wld, at + ROSTER);
@@ -279,14 +296,15 @@ function writeSave(spec: string): void {
   if (existsSync(file)) copyFileSync(file, path.join(values.game, "GAMEDAT", program.backup));
   writeFileSync(file, wld);
   const via = route.history.map((n) => seriesName(series, n)).join(" > ");
-  console.log(`slot ${slot + 1}${values.move ? " (moved)" : overwritten ? " (overwritten)" : ""}: "${title.slice(0, USED - 1)}", ` +
+  console.log(`${program.saves} slot ${slot + 1}${values.move ? " (moved)" : overwritten ? " (overwritten)" : ""}: "${title.slice(0, USED - 1)}", ` +
+    (from ? `pilot from ${WC.saves} slot ${Number(values.transfer)}, ` : "") +
     `${CAMPAIGNS[campaign]} series ${seriesName(series, target)}, mission ${mission}${via ? ` (after ${via})` : ""}`);
 }
 
 try {
   if (values.list) listCampaigns();
   else if (positionals.length === 1) writeSave(positionals[0]);
-  else throw new Error("usage: node src/mission.ts [--game dir] (--list | [--slot n [--move]] [--title t] [--name n] [--callsign c] <[campaign:]series.mission>)");
+  else throw new Error("usage: node src/mission.ts [--game dir] (--list | [--slot n [--move]] [--transfer n] [--title t] [--name n] [--callsign c] <[campaign:]series.mission>)");
 } catch (e) {
   console.error(`mission: ${(e as Error).message}`);
   process.exit(1);

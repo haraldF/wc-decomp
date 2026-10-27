@@ -212,6 +212,7 @@ npm run mission -- --list                 # the mission trees of the Vega campai
 npm run mission -- gimle.2                # series by its system's name (or number), mission from 1
 npm run mission -- sm1:midgard.1 --name Blair --callsign Maverick
 npm run mission -- sm2:4.1                # Secret Missions 2 (series by number: their names repeat)
+npm run mission -- --transfer 7 sm2:1.1   # the pilot of SAVEGAME.WLD's slot 7 into the Secret Missions 2
 npm run mission -- --slot 3 venice.4      # needed when no slot is free: overwrites slot 3
 npm run mission -- --slot 6 --move gateway.1  # move that save game there, keeping its pilot
 ```
@@ -219,7 +220,10 @@ npm run mission -- --slot 6 --move gateway.1  # move that save game there, keepi
 The save holds a new pilot's state (taken from `WC.EXE` or `SM2.EXE`, as the game copies it when a campaign
 starts) with a series history along a path through the tree, preferring won series; scores, kills,
 medals and rank are those of a new pilot. `--game dir` picks another game folder, `--title` the
-name shown in the barracks.
+name shown in the barracks. `--transfer n` takes the pilot (kills, rank, medals, and the wingmen)
+from slot `n` of `SAVEGAME.WLD` instead, like the game's own converters `TRANSFER.EXE` and
+`TRANS2.EXE` (which aren't recompiled, and accept only pilots from Venice or the Secret Missions);
+the save is named after that slot's.
 
 ## In the browser (WebAssembly)
 
