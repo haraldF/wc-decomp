@@ -486,6 +486,7 @@ static uint64_t bios_ticks(void)
 /* The BIOS and DOS services behind the vectors' initial F000:nn entries. */
 void vga_bios(uint32_t at);
 void mouse_int(uint32_t at);
+void ems_int(uint32_t at);
 
 void dos_int(uint64_t n, uint32_t at)
 {
@@ -536,6 +537,9 @@ void dos_int(uint64_t n, uint32_t at)
 		return;
 	case 0x33:
 		mouse_int(at);
+		return;
+	case 0x67:
+		ems_int(at);
 		return;
 	default:
 		fflush(stdout);

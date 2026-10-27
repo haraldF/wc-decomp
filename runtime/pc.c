@@ -19,6 +19,7 @@ uint64_t opl_in(uint64_t port);
 void opl_out(uint64_t port, uint64_t value);
 void opl_poll(uint64_t now);
 void opl_init(void);
+void ems_init(void);
 void vga_out(uint64_t port, uint64_t value);
 void vga_poll(uint64_t now);
 void vga_init(void);
@@ -713,6 +714,7 @@ void pc_init(int tty)
 	pit_set(65536);
 	vga_init();
 	opl_init();
+	ems_init();
 	const char *cycles = getenv("WC_CYCLES");
 	if (cycles) atomic_store(&cycles_per_ms, strcmp(cycles, "max") ? strtoull(cycles, NULL, 10) : 0);
 	const char *fps = getenv("WC_FPS");

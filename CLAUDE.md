@@ -159,6 +159,14 @@ x86 real-mode modelling bugs the scripts work around:
   slower. Now a plain speed factor, default 2 (felt right), Cmd+Left/Right ±25% (WC_MOUSE_SPEED; the page:
   ⌘/Ctrl+←/→, ?mouse=); the page also asks for `unadjustedMovement` pointer lock. Clicking "Start Vega Campaign":
   `WC_KEYS=1000:esc,1100:esc,1300:@160.55,1350:+lmb,1356:-lmb` (at WC_CYCLES=max).
+- Expanded memory (runtime/ems.c, INT 67h, LIM 4.0, 8 MB, page frame E000h): GOG's DOSBox has
+  `ems=true`. Without EMS the game keeps everything in conventional memory, and launching from a
+  Secret Missions 1 save the launch animation (SCRAMBLE.VGA, drawn by d6000) was decoded over
+  the music that was playing (FUN_19c5_0bda, a MIDI sequencer in the timer interrupt): it read a
+  garbage delay (thousands of ticks) and stalled with all notes held, a loud drone in flight.
+  The game finds the driver by "EMMXXXX0" at F000:000A (INT 67h's segment), allocates all pages
+  ("Expanded Memory fully used" is normal) and maps 4 at a time (~12000 AH=44h in 15 s); mapping
+  copies pages in and out of the frame. WC_EMS=0 turns it off.
 - BDA 0x463 must be 0x3D4 (CRTC base) or the retrace wait polls port 6. Port 3DA toggles.
 - DOS INT 21h: the functions the game uses (see `dos.c`); file names are case-insensitive against
   the game folder.
@@ -326,4 +334,4 @@ tied to its mixer).
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in
   `ghidra_scripts/`. C11 runtime in `runtime/`, tab-indented, short comments.
 - Debug env vars: `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
-  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`. Ctrl-C prints a report.
+  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`. Ctrl-C prints a report.

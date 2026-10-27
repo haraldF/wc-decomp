@@ -16,7 +16,8 @@
  *   WC_CYCLES=n     instructions per millisecond (default 8334; "max": unlimited; Cmd+Up/Down in the window)
  *   WC_FPS=n        frames per second in space flight, where frames are paced instead (default 15; 0: off;
  *                   Cmd+Up/Down in flight)
- *   WC_STATS=1      print the frame rate in flight every second */
+ *   WC_STATS=1      print the frame rate in flight every second
+ *   WC_EMS=0        no expanded memory (EMS, 8 MB by default, as in GOG's DOSBox) */
 #include <libgen.h>
 #include <limits.h>
 #ifndef __EMSCRIPTEN__

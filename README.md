@@ -135,7 +135,8 @@ out/bin/wc ../game           # run (WC_TRACE=1 traces DOS calls, WC_TRACE=2 ever
 
 The runtime (`runtime/`) loads and relocates the program image like DOS would (`WC_LOAD_SEG`,
 default `0200`) and provides a small DOS on top of the game folder: files, current directory,
-memory, vectors, date and time. Hardware interrupts are emulated (8259 PIC,
+memory, vectors, date and time, and expanded memory (EMS, 8 MB, as in GOG's DOSBox; `WC_EMS=0`
+turns it off: the game then keeps everything in conventional memory, and its music could stall). Hardware interrupts are emulated (8259 PIC,
 8253 timer at the rate the game programs, keyboard from the terminal or `WC_KEYS`), every vector
 starts at a native BIOS entry (F000:nn), and `INT n` goes through the vector table, so the game's
 own handlers run. BIOS video, keyboard and mouse services are stubs. Generator
