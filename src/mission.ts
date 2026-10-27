@@ -1,21 +1,23 @@
 // Writes a save game that starts at any mission of the campaign tree, into a free slot of the
-// game's GAMEDAT/SAVEGAME.WLD (load it in the barracks: "Continue Campaign").
+// game's GAMEDAT/SAVEGAME.WLD, or CRUSADE.WLD for the Secret Missions 2 (SM2.EXE) (load it in the
+// barracks: "Continue Campaign").
 //
 // Usage: node src/mission.ts [--game dir] --list                 show the campaigns' mission trees
 //        node src/mission.ts [--game dir] [options] <mission>    write the save game
 //   <mission>        [campaign:]series.mission, e.g. 4.2, gimle.2, sm1:3.1: a series by number or
-//                    (the start of) its system's name, missions from 1; campaigns: vega, sm1 (Secret Missions)
+//                    (the start of) its system's name, missions from 1; campaigns: vega, sm1 (Secret Missions),
+//                    sm2 (Secret Missions 2)
 //   --slot n         slot to write (1-8); needed when no slot is free, and then it is overwritten
 //   --title text     the save game's name (default: system and mission)
 //   --name, --callsign  the pilot (default: the game's own)
 //   --move           with --slot: move that save game to the mission instead, keeping its pilot
 //                    (kills, rank, medals, wingmen), name and date
 //
-// The save holds the state of a new campaign, taken from the game's WC.EXE (as the game copies it when
+// The save holds the state of a new campaign, taken from the game's WC.EXE or SM2.EXE (as the game copies it when
 // a campaign starts), with the series and mission set and a series history along a path through
 // the tree to them (preferring won series). Scores, kills, medals and rank are those of a new pilot
 // (or, with --move, the save game's).
-// SAVEGAME.WLD is copied to SAVEGAME.BAK before it is changed.
+// The save file is copied to SAVEGAME.BAK (CRUSADE.BAK) before it is changed.
 
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -55,15 +57,18 @@ const HISTORY_COUNT = 0x17; // series completed so far
 const HISTORY = 0x18;       // ... and which (8 bytes)
 const DAY = 0x34, YEAR = 0x36;
 const SERIES_SCORE = 0x40;  // word, from 0 in each series
-const CAMPAIGN = 0x42;      // 0 Vega, 1 the Secret Missions (CAMP.000, CAMP.001)
+const CAMPAIGN = 0x42;      // 0 Vega, 1 the Secret Missions, 2 the Secret Missions 2 (CAMP.00n)
 
-// Where WC.EXE's data segment keeps the new-campaign state the game copies (ovl17_10c9).
-const DGROUP = 0x12310;     // DGROUP (1231h) in the load image
-const NEW_STATE = 0x17c8;
-const NEW_ROSTER = 0x180c;
+// The programs, their save files, and where their data segment keeps the new-campaign state the
+// game copies (ovl17_10c9 in WC.EXE).
+interface Program { exe: string; saves: string; backup: string; dgroup: number; newState: number; newRoster: number }
+const WC: Program = { exe: "WC.EXE", saves: "SAVEGAME.WLD", backup: "SAVEGAME.BAK", dgroup: 0x12310, newState: 0x17c8, newRoster: 0x180c };
+const SM2: Program = { exe: "SM2.EXE", saves: "CRUSADE.WLD", backup: "CRUSADE.BAK", dgroup: 0x11e80, newState: 0x171c, newRoster: 0x1760 };
 
-// WC.EXE runs these two (its campaign file table has no third; Secret Missions 2 is SM2.EXE's).
-const CAMPAIGNS = ["vega", "sm1"];
+// WC.EXE runs the first two (its campaign file table has no third); SM2.EXE the Secret Missions 2
+// (its table, DS:1f00, lists all three files, and it starts the third).
+const CAMPAIGNS = ["vega", "sm1", "sm2"];
+const programOf = (campaign: number): Program => (campaign === 2 ? SM2 : WC);
 
 /** Origin's LZW: LSB-first codes of 9 to 12 bits, 100h resets the dictionary, 101h ends. */
 function lzw(src: Buffer, size: number): Buffer {
@@ -191,13 +196,13 @@ function findSeries(series: Series[], key: string): Series {
   throw new Error(`"${key}" is ambiguous: series ${found.map((s) => s.number).join(", ")}; give the number`);
 }
 
-/** The roster and campaign state the game sets up for a new campaign, from WC.EXE's data. */
-function newCampaignState(): { roster: Buffer; state: Buffer } {
-  const exe = parseMz(readFileSync(path.join(values.game, "WC.EXE")));
-  const roster = Buffer.from(exe.image.subarray(DGROUP + NEW_ROSTER, DGROUP + NEW_ROSTER + ROSTER_SIZE));
-  const state = Buffer.from(exe.image.subarray(DGROUP + NEW_STATE, DGROUP + NEW_STATE + STATE_SIZE));
+/** The roster and campaign state the game sets up for a new campaign, from the program's data. */
+function newCampaignState(p: Program): { roster: Buffer; state: Buffer } {
+  const exe = parseMz(readFileSync(path.join(values.game, p.exe)));
+  const roster = Buffer.from(exe.image.subarray(p.dgroup + p.newRoster, p.dgroup + p.newRoster + ROSTER_SIZE));
+  const state = Buffer.from(exe.image.subarray(p.dgroup + p.newState, p.dgroup + p.newState + STATE_SIZE));
   if (roster.toString("latin1", 0, 6) !== "TANAKA" || state[SERIES] !== 1) {
-    throw new Error("WC.EXE: the new-campaign data isn't where expected (a different version of the game?)");
+    throw new Error(`${p.exe}: the new-campaign data isn't where expected (a different version of the game?)`);
   }
   return { roster, state };
 }
@@ -218,7 +223,8 @@ function writeSave(spec: string): void {
   const route = findPath(series, target);
   if (!route) throw new Error(`series ${target} can't be reached from series 1`);
 
-  const file = path.join(values.game, "GAMEDAT", "SAVEGAME.WLD");
+  const program = programOf(campaign);
+  const file = path.join(values.game, "GAMEDAT", program.saves);
   const saves = existsSync(file) ? readFileSync(file) : Buffer.alloc(0);
   const wld = Buffer.alloc(SLOTS * SLOT_SIZE);
   if (saves.length && saves.length !== wld.length) throw new Error(`${file}: ${saves.length} bytes, expected ${wld.length}`);
@@ -241,7 +247,7 @@ function writeSave(spec: string): void {
   if (values.move && (values.slot === undefined || !overwritten)) throw new Error("--move needs --slot n of a save game");
   const { roster, state } = values.move
     ? { roster: Buffer.from(wld.subarray(at + ROSTER, at + ROSTER + ROSTER_SIZE)), state: Buffer.from(wld.subarray(at + STATE, at + STATE + STATE_SIZE)) }
-    : newCampaignState();
+    : newCampaignState(program);
   const player = PLAYER * PILOT_SIZE;
   if (values.name !== undefined) setString(roster, player, 14, values.name, "name");
   if (values.callsign !== undefined) setString(roster, player + 14, 14, values.callsign, "callsign");
@@ -270,7 +276,7 @@ function writeSave(spec: string): void {
   roster.copy(wld, at + ROSTER);
   state.copy(wld, at + STATE);
 
-  if (existsSync(file)) copyFileSync(file, path.join(values.game, "GAMEDAT", "SAVEGAME.BAK"));
+  if (existsSync(file)) copyFileSync(file, path.join(values.game, "GAMEDAT", program.backup));
   writeFileSync(file, wld);
   const via = route.history.map((n) => seriesName(series, n)).join(" > ");
   console.log(`slot ${slot + 1}${values.move ? " (moved)" : overwritten ? " (overwritten)" : ""}: "${title.slice(0, USED - 1)}", ` +

@@ -2,7 +2,7 @@
 # `npm run recomp`). `npm run build` configures out/build and builds it; by hand:
 #   cmake -S . -B out/build -G Ninja && cmake --build out/build
 # With Emscripten (`npm run web`: emcmake, out/build-web), it builds the web page instead: wc.js and
-# wc.wasm next to web/index.html in out/web.
+# wc.wasm next to web/index.html in out/web (sm2.js and sm2.wasm for the Secret Missions 2, same page).
 cmake_minimum_required(VERSION 3.24)
 project(wc LANGUAGES C)
 
@@ -15,6 +15,7 @@ endif()
 
 set(WC_RECOMP_DIR "${CMAKE_SOURCE_DIR}/out/recomp" CACHE PATH "The generated C (npm run recomp)")
 set(WC_BIN_DIR "${CMAKE_SOURCE_DIR}/out/bin" CACHE PATH "Where wc goes, next to image.bin and relocs.bin")
+set(WC_NAME "wc" CACHE STRING "The executable's name: wc, or sm2 for the Secret Missions 2")
 
 if(EMSCRIPTEN)
   # The emulation runs on a pthread: shared memory, so the whole program is built for it
@@ -56,7 +57,7 @@ if(EMSCRIPTEN)
     -sEXPORTED_RUNTIME_METHODS=FS,ENV,HEAPU8
     "--embed-file=${WC_RECOMP_DIR}/image.bin@/wc/image.bin"
     "--embed-file=${WC_RECOMP_DIR}/relocs.bin@/wc/relocs.bin")
-  set_target_properties(wc PROPERTIES SUFFIX ".js" LINK_DEPENDS "${WC_IMAGE}")
+  set_target_properties(wc PROPERTIES OUTPUT_NAME "${WC_NAME}" SUFFIX ".js" LINK_DEPENDS "${WC_IMAGE}")
   # The page and its service worker, next to wc.js and wc.wasm
   set(WC_DATA)
   foreach(f index.html sw.js)
@@ -69,6 +70,7 @@ if(EMSCRIPTEN)
 else()
   target_sources(wc PRIVATE runtime/host_sdl.c)
   target_link_libraries(wc PRIVATE SDL3::SDL3)
+  set_target_properties(wc PROPERTIES OUTPUT_NAME "${WC_NAME}")
   # The program image the runtime loads, found next to the executable
   set(WC_DATA)
   foreach(f image.bin relocs.bin)

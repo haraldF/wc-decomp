@@ -1,6 +1,6 @@
 /* Loads and relocates the program image, sets up the DOS process the way DOS's EXE loader would,
  * and enters the recompiled code at the program's entry point.
- * Usage: wc [game folder [game arguments...]]
+ * Usage: wc [game folder [game arguments...]]  (sm2 likewise, for the Secret Missions 2)
  *   game arguments  passed to the game on its DOS command line, e.g. "Origin -k" (the developers'
  *                   mode, "Origin" spelled exactly so; -k: the player's ship takes no damage)
  *   WC_TRACE=1      trace DOS calls; 2 also every instruction; 3 also I/O ports
@@ -25,6 +25,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "host.h"
@@ -37,7 +38,6 @@ extern uint16_t wc_psp_seg;
 enum {
 	BUILD_SEG = 0x1000,  /* segment the generated code was produced for */
 	TOP_SEG = 0xa000,    /* end of conventional memory */
-	ENTRY_CS = 0x0000, ENTRY_IP = 0x0000, STACK_SS = 0x1f94, STACK_SP = 0x0080, /* from WC.EXE's header */
 };
 
 static size_t read_file(const char *path, uint8_t *dst, size_t max)
@@ -100,9 +100,10 @@ static void setup_process(unsigned load_seg, int argc, char **argv)
 {
 	unsigned psp_seg = load_seg - 0x10, env_seg = load_seg - 0x20;
 	/* environment: variables, an empty string ending them, a count word and the program path
-	 * (the overlay manager reads WC.EXE through that path) */
-	static const char env[] = "COMSPEC=C:\\COMMAND.COM\0\0\1\0C:\\WC.EXE";
-	memcpy(M + env_seg * 16, env, sizeof env);
+	 * (the overlay manager reads the program's overlays through that path) */
+	static const char vars[] = "COMSPEC=C:\\COMMAND.COM\0\0\1\0C:\\";
+	memcpy(M + env_seg * 16, vars, sizeof vars - 1);
+	strcpy((char *)M + env_seg * 16 + sizeof vars - 1, wc_program.exe);
 
 	uint8_t *psp = M + psp_seg * 16;
 	psp[0] = 0xcd; /* INT 20h */
@@ -114,10 +115,10 @@ static void setup_process(unsigned load_seg, int argc, char **argv)
 	set_command_line(psp, argc, argv);
 	wc_psp_seg = psp_seg;
 
-	wr(R_CS, 2, load_seg + ENTRY_CS);
-	wr(R_IP, 2, ENTRY_IP);
-	wr(R_SS, 2, load_seg + STACK_SS);
-	wr(R_SP, 2, STACK_SP);
+	wr(R_CS, 2, load_seg + wc_program.cs);
+	wr(R_IP, 2, wc_program.ip);
+	wr(R_SS, 2, load_seg + wc_program.ss);
+	wr(R_SP, 2, wc_program.sp);
 	wr(R_DS, 2, psp_seg);
 	wr(R_ES, 2, psp_seg);
 	wr(R_IF, 1, 1);
@@ -127,7 +128,7 @@ static unsigned entry_seg;
 
 static void game(void)
 {
-	run(entry_seg * 16 + ENTRY_IP);
+	run(entry_seg * 16 + wc_program.ip);
 	fprintf(stderr, "wc: entry point returned\n");
 	cpu_report(stderr);
 }
@@ -185,6 +186,6 @@ int main(int argc, char **argv)
 		p += used + (p[used] == ',');
 	}
 
-	entry_seg = load_seg + ENTRY_CS;
+	entry_seg = load_seg + wc_program.cs;
 	host_run(game);
 }

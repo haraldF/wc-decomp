@@ -180,7 +180,8 @@ static void press(uint8_t code)
  * A key is a character or a name (esc, enter, space, up, ...); it is pressed and released at
  * once, or only pressed with a + in front (+up) and only released with a - (-up). The mouse:
  * @x.y moves it (320x200), lmb/rmb click (+lmb/-lmb hold and release); with WC_MOUSE=1. */
-static struct { uint64_t tick; uint8_t code; char how; int16_t mx, my; } script[64];
+enum { SCRIPT_MAX = 1024 };
+static struct { uint64_t tick; uint8_t code; char how; int16_t mx, my; } script[SCRIPT_MAX];
 static int script_mx = 160, script_my = 100, script_buttons;
 static int script_len, script_pos;
 static uint64_t ticks;
@@ -189,7 +190,11 @@ static uint64_t script_repeat_ns;    /* when it repeats next (typematic: 0.5 s, 
 
 static void parse_script(const char *s)
 {
-	while (s && *s && script_len < 64) {
+	while (s && *s) {
+		if (script_len == SCRIPT_MAX) {
+			fprintf(stderr, "wc: WC_KEYS has more than %d entries\n", SCRIPT_MAX);
+			exit(1);
+		}
 		unsigned long long t;
 		char name[16];
 		int used = 0;

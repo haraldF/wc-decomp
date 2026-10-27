@@ -1,13 +1,15 @@
 # wc-decomp
 
-Decompiles Wing Commander's `WC.EXE` to C with Ghidra, driven from TypeScript.
+Decompiles Wing Commander's `WC.EXE` (and the Secret Missions 2's `SM2.EXE`) to C with Ghidra,
+driven from TypeScript, and recompiles it into a native or WebAssembly program.
 
 ## Building it yourself
 
 This repository contains no game files and nothing derived from them: you need your own copy of
 Wing Commander, the GOG release (with the Secret Missions). Everything is worked out on its
-`WC.EXE`, SHA-256 `c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca`; other
-releases are refused. The native build runs on macOS.
+`WC.EXE`, SHA-256 `c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca`, and `SM2.EXE`,
+`900f379b04c7b6f11ae08cf84ca278b9260df8ed81d038cdb3907bbf136cd84d`; other releases are refused. The
+native build runs on macOS.
 
 Prerequisites (Homebrew):
 
@@ -28,6 +30,18 @@ npm run discover     # run it: captures and recompiles the drivers the game load
 out/bin/wc ../game   # play (arguments after the folder go to the game: Origin -k, the developers'
                      # mode, makes your ship take no damage; "Origin" spelled exactly so)
 ```
+
+The Secret Missions 2 are a program of their own, `SM2.EXE`: the same steps with `-- --game sm2`
+build `out/sm2/bin/sm2` (everything generated for it goes to `out/sm2/`; its entry points are in
+`entries-sm2.txt`):
+
+```bash
+npm run decompile -- --game sm2 && npm run recomp -- --game sm2 && npm run discover -- --game sm2
+out/sm2/bin/sm2 ../game
+```
+
+After its intro, `SM2.EXE` asks a copy-protection question on a black screen ("Enter 5:"): in GOG's
+release the question isn't shown and any answer is accepted, so type anything and press Enter.
 
 Everything generated goes to `out/` (ignored by git). `discover` runs the game headless several
 times; the drivers it captures depend on the game's sound setting (`WINGCMDR.CFG`, written by the
@@ -188,23 +202,24 @@ Not supported yet: text-mode output, Roland MT-32 and Sound Blaster digital soun
 ### Starting at any mission
 
 `npm run mission` writes a save game that starts at a chosen mission into a free slot of the
-game's `GAMEDAT/SAVEGAME.WLD` (copying the file to `SAVEGAME.BAK` first). In the game, choose
+game's `GAMEDAT/SAVEGAME.WLD` (copying the file to `SAVEGAME.BAK` first), or, for the Secret
+Missions 2, `CRUSADE.WLD` (`CRUSADE.BAK`). In the game, choose
 "Continue Campaign", click the sleeping pilot of that slot in the barracks, then leave through the
 right-hand door for the briefing.
 
 ```bash
-npm run mission -- --list                 # the mission trees of the Vega campaign and Secret Missions
+npm run mission -- --list                 # the mission trees of the Vega campaign and Secret Missions 1 and 2
 npm run mission -- gimle.2                # series by its system's name (or number), mission from 1
 npm run mission -- sm1:midgard.1 --name Blair --callsign Maverick
+npm run mission -- sm2:4.1                # Secret Missions 2 (series by number: their names repeat)
 npm run mission -- --slot 3 venice.4      # needed when no slot is free: overwrites slot 3
 npm run mission -- --slot 6 --move gateway.1  # move that save game there, keeping its pilot
 ```
 
-The save holds a new pilot's state (taken from `WC.EXE`, as the game copies it when a campaign
+The save holds a new pilot's state (taken from `WC.EXE` or `SM2.EXE`, as the game copies it when a campaign
 starts) with a series history along a path through the tree, preferring won series; scores, kills,
 medals and rank are those of a new pilot. `--game dir` picks another game folder, `--title` the
-name shown in the barracks. Secret Missions 2 isn't run by `WC.EXE` (it's `SM2.EXE`), so it can't
-be chosen.
+name shown in the barracks.
 
 ## In the browser (WebAssembly)
 
@@ -216,6 +231,7 @@ the keyboard and mouse to the game and plays the AdLib music with an AudioWorkle
 ```bash
 npm run recomp && npm run discover   # as for the native build, if not done yet
 npm run web                          # out/web: index.html, wc.js, wc.wasm, sw.js
+npm run web -- --game sm2            # adds sm2.js, sm2.wasm: the page offers the Secret Missions 2 too
 npm run serve                        # http://localhost:8080
 ```
 

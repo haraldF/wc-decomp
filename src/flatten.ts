@@ -28,6 +28,8 @@ export interface ManifestOverlay {
 export interface Manifest {
   source: string;
   entry: { cs: number; ip: number };
+  /** Initial stack, from the EXE header. */
+  stack: { ss: number; sp: number };
   /** Segment of DGROUP (the default data segment Borland's startup code loads into DS). */
   dgroup: number | null;
   segments: ManifestSegment[];
@@ -89,6 +91,7 @@ export function flatten(file: Buffer, source: string): { exe: Buffer; manifest: 
   const manifest: Manifest = {
     source,
     entry: { cs: mz.header.cs, ip: mz.header.ip },
+    stack: { ss: mz.header.ss, sp: mz.header.sp },
     dgroup,
     segments,
     overlays: placed.map(({ ovl, seg }) => ({

@@ -1,6 +1,9 @@
 # The virtual segment each driver the game loads at runtime is recompiled at, by the SHA-256 (first
 # 16 hex digits) of its first 1 KB. npm run discover captures drivers in whatever order the game
-# loads them; this keeps their segments, and so the entry points in entries.txt, the same.
+# loads them; this keeps their segments, and so the entry points in entries.txt, the same. A driver
+# can have several hashes: the game writes into its first bytes when loading it.
 d6000 5cb91ce7c6806d65  graphics (menus, rooms)
 d7000 5118033b8a93e648  graphics (space flight; the frame copy at 7454, see runtime/cpu.c)
 d8000 051b67dd566d6d31  AdLib music
+d6000 38a631a411885c1b  the same, as SM2.EXE loads it (it writes other values into the header)
+d7000 76a5961b3a2988e6  the same, as SM2.EXE loads it

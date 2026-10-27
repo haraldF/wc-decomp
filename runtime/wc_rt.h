@@ -27,6 +27,14 @@ extern int wc_trace;
 extern int64_t wc_reloc;
 extern uint32_t wc_image_lo, wc_image_hi; /* runtime linear range of the image */
 
+/* The recompiled program (WC.EXE or SM2.EXE): its file name and start, from its EXE header
+ * (wc_program.c, generated). */
+struct wc_program {
+	const char *exe;
+	uint16_t cs, ip, ss, sp;
+};
+extern const struct wc_program wc_program;
+
 /* Code the program loads at runtime (drivers) is recompiled from images captured in memory, each
  * at its own virtual segment from DRIVER_VIRT_SEG on; it runs at whatever segment it was loaded. */
 #define DRIVER_VIRT_SEG 0x6000u

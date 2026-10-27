@@ -221,6 +221,7 @@ The intro runs natively (~400–600 M instructions/s); a frame-buffer screenshot
 The SDL3 window shows it live, takes the keyboard and mouse, and plays AdLib music. Missing:
 MT-32 / Sound Blaster digital sound, text mode, joystick.
 
+The Secret Missions 2 (`SM2.EXE`) run too, built the same way with `--game sm2` (see below).
 The same runs in the browser (`npm run web`, see below). Sound via Nuked-OPL3 (LGPL) on 388h/389h, later libmt32emu — not DOSBox Staging's audio code (GPL,
 tied to its mixer).
 
@@ -283,6 +284,39 @@ tied to its mixer).
   `WC_MOUSE=1 WC_KEYS=1000:esc,1100:esc,1300:@160.100,1350:+lmb,1356:-lmb,1700:@137.90,1750:+lmb,
   1756:-lmb,1850:+y,1856:-y,1950:+y,1956:-y,2700:@300.60,2720:@300.61,2750:+lmb,2756:-lmb` (slot 1;
   the dialog's timing varies, hence the repeats) reaches the briefing in ~60 s.
+
+## Secret Missions 2 (SM2.EXE)
+
+- A program of its own (GOG: SHA-256 900f379b...), same engine and compiler, laid out differently:
+  DGROUP 11E8h (DS = load seg + 11E8h), SS:SP 1F7Ah:0080h, 40 overlays / 864 entries. Nothing
+  recompiled for WC.EXE applies; `--game sm2` runs the whole pipeline on it into `out/sm2/`
+  (`out/sm2/bin/sm2`), with `entries-sm2.txt`. `cli.ts` writes `wc_program.c` (exe name, entry,
+  stack from the header) for the runtime; the environment's program path is that name (VROOM
+  opens it for the overlays).
+- It loads the same drivers, but writes other values into their first bytes (the header words
+  at 0Ch/0Eh, 2Eh/30h), so the first-1-KB hash differs: `drivers.txt` lists a second hash for
+  d6000/d7000 (it first captured them as d9000/da000). Same names keep `FRAME_COPY` (d7000:7454)
+  valid.
+- Reads `CRUSADE.CFG` (not WINGCMDR.CFG), saves to `CRUSADE.WLD` (same slot layout). Its campaign
+  file table (DS:1F00) has camp.000-002; its campaign is 2. New-campaign template at DS:171C
+  (state) / DS:1760 (roster). Series names repeat (Firekka, Corsair, Charon): use numbers.
+- WC.EXE entries mostly don't carry over by bytes (data offsets in the instructions differ);
+  the few that matched seeded entries-sm2.txt, plus all driver entries.
+- Copy protection after the intro: "Enter 5:" on a black screen. The question (from INTRO1.DAT,
+  ovl38) is drawn into a 1x1 window (rect DS:3BC8 = 1,1,1,1) and the result is skipped by a
+  `jmp` over "Protection failed" (56f8:0265): GOG's patch. Any answer + Enter goes on.
+- "Start Secret Missions 2" (like WC1's start) runs a short automatic simulator round, whose
+  high-score entry is the name entry, then the rec room. Timings (timer ticks ~60/s at max speed):
+  `WC_MOUSE=1 WC_KEYS=2000:esc,2100:esc,2400:+1,2404:-1,2450:+enter,2454:-enter,2700:@60.72,
+  2750:+lmb,2756:-lmb,9200:b,...,9260:+enter,9266:-enter,9300:m,...,9340:+enter,9346:-enter,
+  11000:+space,11006:-space` reaches the rec room; `13000:@305.100` + click the barracks;
+  `15500:@300.60` + click the briefing (clicking at 60,72 keeps the pointer off the simulator).
+  Continue Campaign is at 60,115; a sleeper at 137,90 asks "(Y/N)" ~700 ticks later. Esc in the
+  briefing goes back to the barracks; Space steps through it into flight. WC_KEYS takes up to
+  1024 entries. Discovery: `discover --game sm2 --seconds 900` with such keys (and `--exe` in a
+  scratch copy of the game folder holding a save from the mission tool) found nothing missing
+  through intro, protection, menus, simulator, rec room, barracks, briefing and a mission flown
+  (autopilot key, no combat steering) back to the barracks.
 
 ## Conventions
 

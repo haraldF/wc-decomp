@@ -55,7 +55,7 @@
   <h1>Wing Commander</h1>
   <p class="sub">The 1990 DOS game, statically recompiled to WebAssembly. Bring your own game files (GOG release).</p>
   <div id="drop">
-    <p>Drop your Wing Commander folder here (the one with <code>WC.EXE</code> and <code>GAMEDAT</code>).</p>
+    <p>Drop your Wing Commander folder here (the one with <code>WC.EXE</code>, <code>SM2.EXE</code> and <code>GAMEDAT</code>).</p>
     <div class="pickers">
       <button id="pickDir">Choose folder…</button>
       <button id="pickFiles">Choose files…</button>
@@ -66,6 +66,7 @@
   <ul id="status"></ul>
   <div class="actions">
     <button id="start" class="primary" disabled>Start</button>
+    <button id="startSm2" hidden disabled>Start Secret Missions 2</button>
     <button id="downloadSaves" hidden>Download save games</button>
     <button id="forget" hidden>Forget game files</button>
   </div>
@@ -87,14 +88,19 @@
   </div>
 </section>
 
-<script src="wc.js"></script>
 <script>
 "use strict";
 const log = (...a) => console.log("[wc]", ...a);
 const $ = (id) => document.getElementById(id);
 
-// The WC.EXE the recompiled code was made from (GOG's release).
-const WC_EXE_SHA256 = "c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca";
+// The programs, each recompiled from GOG's release (script: the build, next to this page; cfg: the
+// sound configuration the game reads).
+const PROGRAMS = {
+  wc: { exe: "WC.EXE", sha256: "c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca", script: "wc.js", cfg: "WINGCMDR.CFG", saves: "SAVEGAME.WLD" },
+  sm2: { exe: "SM2.EXE", sha256: "900f379b04c7b6f11ae08cf84ca278b9260df8ed81d038cdb3907bbf136cd84d", script: "sm2.js", cfg: "CRUSADE.CFG", saves: "CRUSADE.WLD" },
+};
+// Whether the Secret Missions 2 build is next to this page (npm run web -- --game sm2).
+const sm2Built = fetch(PROGRAMS.sm2.script, { method: "HEAD" }).then((r) => r.ok, () => false);
 
 // ---- cross-origin isolation: the emulation's thread needs SharedArrayBuffer ----
 
@@ -233,16 +239,24 @@ async function refresh() {
   const exe = find("WC.EXE");
   let ready = !!exe;
   if (!exe) item("bad", "WC.EXE is missing");
-  else if (await sha256(files.get(exe)) !== WC_EXE_SHA256) item("bad", "WC.EXE isn't the GOG release's: it will probably not run");
+  else if (await sha256(files.get(exe)) !== PROGRAMS.wc.sha256) item("bad", "WC.EXE isn't the GOG release's: it will probably not run");
   else item("ok", "WC.EXE (GOG release)");
+  const sm2 = find("SM2.EXE");
+  let sm2Ready = !!sm2 && await sm2Built;
+  if (sm2 && await sm2Built) {
+    if (await sha256(files.get(sm2)) !== PROGRAMS.sm2.sha256) item("bad", "SM2.EXE isn't the GOG release's: it will probably not run");
+    else item("ok", "SM2.EXE (Secret Missions 2, GOG release)");
+  }
   const gamedat = [...files.keys()].filter((k) => k.toUpperCase().startsWith("GAMEDAT/")).length;
   if (gamedat) item("ok", `GAMEDAT: ${gamedat} files`);
-  else { item("bad", "GAMEDAT is missing"); ready = false; }
+  else { item("bad", "GAMEDAT is missing"); ready = sm2Ready = false; }
   item(find("WINGCMDR.CFG") ? "ok" : "", find("WINGCMDR.CFG") ? "WINGCMDR.CFG" : "No WINGCMDR.CFG: AdLib music is used");
   if (saves.size) item("ok", `Saved in this browser: ${[...saves.keys()].join(", ")}`);
   $("start").disabled = !ready;
+  $("startSm2").hidden = !sm2Ready;
+  $("startSm2").disabled = !sm2Ready;
   $("forget").hidden = !files.size;
-  $("downloadSaves").hidden = !saves.size && !find("GAMEDAT/SAVEGAME.WLD");
+  $("downloadSaves").hidden = !saves.size && !find("GAMEDAT/SAVEGAME.WLD") && !find("GAMEDAT/CRUSADE.WLD");
 }
 
 $("forget").onclick = async () => {
@@ -254,7 +268,7 @@ $("forget").onclick = async () => {
 async function downloadSaves() {
   const files = await getAll("files");
   const saves = await getAll("saves");
-  const all = new Map([...files].filter(([k]) => k.toUpperCase() === "GAMEDAT/SAVEGAME.WLD"));
+  const all = new Map([...files].filter(([k]) => ["GAMEDAT/SAVEGAME.WLD", "GAMEDAT/CRUSADE.WLD"].includes(k.toUpperCase())));
   for (const [k, v] of saves) all.set(k, v);
   for (const [path, data] of all) {
     const a = document.createElement("a");
@@ -346,14 +360,26 @@ for (let i = 1; i <= 10; i++) scancodes["F" + i] = 0x3a + i;
 
 // ---- running the game ----
 
-async function start() {
+/** Loads a program's build (it defines WingCommander, the module's factory). */
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error(`couldn't load ${src}`));
+    document.head.append(s);
+  });
+}
+
+async function start(program) {
   // created during the click, so the browser lets it play
   const audio = new AudioContext({ latencyHint: "interactive" });
-  $("start").disabled = true;
+  $("start").disabled = $("startSm2").disabled = true;
   const files = await getAll("files");
   const saves = await getAll("saves");
-  if (![...files.keys()].some((k) => k.toUpperCase() === "WINGCMDR.CFG")) {
-    files.set("WINGCMDR.CFG", new TextEncoder().encode("v a904 z\r\n")); // AdLib music
+  if (![...files.keys()].some((k) => k.toUpperCase() === program.cfg)) {
+    const cfg = [...files].find(([k]) => k.toUpperCase() === "WINGCMDR.CFG")?.[1] ?? new TextEncoder().encode("v a904 z\r\n"); // AdLib music
+    files.set(program.cfg, cfg);
   }
   const canvas = $("canvas");
   let wc;
@@ -390,6 +416,7 @@ async function start() {
   };
   let ended = () => {};
   try {
+    await loadScript(program.script);
     wc = await WingCommander(config);
   } catch (e) {
     console.error("[wc]", e);
@@ -569,7 +596,8 @@ function run(wc, canvas, audio) {
   };
 }
 
-$("start").onclick = start;
+$("start").onclick = () => start(PROGRAMS.wc);
+$("startSm2").onclick = () => start(PROGRAMS.sm2);
 
 (async () => {
   if (!(await ensureIsolated())) return;

@@ -1,4 +1,6 @@
-// Usage: node src/cli.ts <flatten|fid|decompile|redecompile> [--exe WC.EXE] [--borland dir] [--out dir]
+// Usage: node src/cli.ts <command> [--game wc|sm2] [--exe file] [--borland dir] [--out dir]
+//   --game       which program: wc (WC.EXE: Vega and Secret Missions 1, in out/, binary out/bin/wc) or
+//                sm2 (SM2.EXE: Secret Missions 2, in out/sm2/, binary out/sm2/bin/sm2)
 //   flatten      write out/WC_FLAT.EXE (overlays folded in) and out/manifest.json
 //   fid          build out/borland-tc10.fidb, a Function ID database of the Borland Turbo C++ 1.0
 //                runtime, from CM.LIB, C0M.OBJ and OVERLAY.LIB in --borland (only once)
@@ -7,8 +9,9 @@
 //   recomp       translate the analyzed program to compilable C (out/recomp/) and build out/bin/wc
 //   build        only (re)build out/bin/wc from out/recomp/ and runtime/ (CMake, in out/build/)
 //   web          build the web page in out/web/ from out/recomp/ and runtime/ (Emscripten, in out/build-web/)
-//   discover     run out/bin/wc; when it reaches code that wasn't recompiled (reached only through
-//                pointers in data), add that entry point to entries.txt, recompile, repeat;
+//   discover     run out/bin/wc (each run for --seconds, default 60; WC_KEYS etc. from the environment);
+//                when it reaches code that wasn't recompiled (reached only through pointers in data),
+//                add that entry point to entries.txt, recompile, repeat;
 //                when it calls code the game loaded at runtime (drivers), capture it to out/loaded/
 //                and recompile that too
 
@@ -17,21 +20,41 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { flatten } from "./flatten.ts";
+import { flatten, type Manifest } from "./flatten.ts";
 import { findGhidra, runHeadless } from "./ghidra.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
-    exe: { type: "string", default: path.resolve(root, "../game/WC.EXE") },
+    game: { type: "string", default: "wc" },
+    exe: { type: "string" },
     borland: { type: "string", default: path.resolve(root, "../tc/extracted") },
     out: { type: "string", default: path.join(root, "out") },
+    seconds: { type: "string", default: "60" },
   },
 });
 
+// The programs this project recompiles, each the GOG release's (by SHA-256): other releases differ
+// in code and data, so the addresses in the entries file, the runtime and the tools would be wrong.
+interface Game { exe: string; sha256: string; out: string; entries: string }
+const GAMES: Record<string, Game> = {
+  // Wing Commander with the Secret Missions 1 (GOG)
+  wc: { exe: "WC.EXE", sha256: "c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca", out: "", entries: "entries.txt" },
+  // The Secret Missions 2: Crusade, a program of its own
+  sm2: { exe: "SM2.EXE", sha256: "900f379b04c7b6f11ae08cf84ca278b9260df8ed81d038cdb3907bbf136cd84d", out: "sm2", entries: "entries-sm2.txt" },
+};
+const gameName = values.game!;
+const game = GAMES[gameName];
+if (!game) {
+  console.error(`unknown --game ${gameName} (${Object.keys(GAMES).join(", ")})`);
+  process.exit(2);
+}
+const exePath = path.resolve(values.exe ?? path.join(root, "../game", game.exe));
+
 const command = positionals[0];
-const out = path.resolve(values.out);
+const baseOut = path.resolve(values.out);
+const out = path.join(baseOut, game.out);
 const flatExe = path.join(out, "WC_FLAT.EXE");
 const manifestPath = path.join(out, "manifest.json");
 const projectDir = path.join(out, "ghidra");
@@ -39,7 +62,7 @@ const cDir = path.join(out, "c");
 const scriptPath = path.join(root, "ghidra_scripts");
 const projectName = "WC";
 const recompDir = path.join(out, "recomp");
-const entriesFile = path.join(root, "entries.txt"); // kept in the repository
+const entriesFile = path.join(root, game.entries); // kept in the repository
 
 // Code the game loads at runtime, captured from memory and recompiled at a virtual segment each.
 interface Driver { name: string; seg: number; file: string }
@@ -48,7 +71,8 @@ const capturesDir = path.join(loadedDir, "captures");
 const driversFile = path.join(loadedDir, "drivers.json");
 const readDrivers = (): Driver[] => (existsSync(driversFile) ? JSON.parse(readFileSync(driversFile, "utf8")) : []);
 // Which virtual segment each driver gets, by a hash of its first 1 KB (kept in the repository, since
-// the driver entry points in entries.txt depend on it, and captures come in any order).
+// the driver entry points in the entries files depend on it, and captures come in any order; shared
+// by the programs, which load the same drivers).
 const driverIdsFile = path.join(root, "drivers.txt");
 const driverHash = (image: Buffer): string => createHash("sha256").update(image.subarray(0, 1024)).digest("hex").slice(0, 16);
 const readDriverIds = (): { name: string; hash: string }[] =>
@@ -78,8 +102,8 @@ function writeDriverList(drivers: Driver[]): void {
   if (!existsSync(file) || readFileSync(file, "utf8") !== text) writeFileSync(file, text);
 }
 
-const wcExe = path.join(out, "bin", "wc");
-const gameDir = path.dirname(path.resolve(values.exe));
+const wcExe = path.join(out, "bin", gameName);
+const gameDir = path.dirname(exePath);
 const doRecomp = async (): Promise<void> => {
   mkdirSync(recompDir, { recursive: true });
   await runHeadless(findGhidra(), [
@@ -102,32 +126,44 @@ const doRecomp = async (): Promise<void> => {
 };
 /** Configure (once) and build with CMake; web: with Emscripten, into out/web. */
 const cmakeBuild = async (web: boolean): Promise<void> => {
+  writeProgram();
   const buildDir = path.join(out, web ? "build-web" : "build");
-  const binDir = path.join(out, web ? "web" : "bin");
+  const binDir = web ? path.join(baseOut, "web") : path.join(out, "bin"); // one page for both programs
   if (!existsSync(path.join(buildDir, "CMakeCache.txt"))) {
     const ninja = spawnSync("ninja", ["--version"]).status === 0 ? ["-G", "Ninja"] : [];
-    const args = ["-S", root, "-B", buildDir, ...ninja, `-DWC_RECOMP_DIR=${recompDir}`, `-DWC_BIN_DIR=${binDir}`];
+    const args = ["-S", root, "-B", buildDir, ...ninja, `-DWC_RECOMP_DIR=${recompDir}`, `-DWC_BIN_DIR=${binDir}`,
+      `-DWC_NAME=${gameName}`];
     await (web ? exec("emcmake", ["cmake", ...args]) : exec("cmake", args));
   }
   await exec("cmake", ["--build", buildDir]);
   console.log(`built ${web ? path.join(binDir, "index.html") : wcExe}`);
 };
 const doBuild = (): Promise<void> => cmakeBuild(false);
-const borlandProjectDir = path.join(out, "borland");
-const fidb = path.join(out, "borland-tc10.fidb");
+const borlandProjectDir = path.join(baseOut, "borland");
+const fidb = path.join(baseOut, "borland-tc10.fidb");
 // Medium memory model runtime, startup code and overlay manager, as linked into WC.EXE.
 const borlandFiles = ["CM.LIB", "C0M.OBJ", "OVERLAY.LIB"];
 
-// The WC.EXE everything here was worked out on (GOG's Wing Commander, with the Secret Missions).
-// Other releases differ in code and data, so addresses in entries.txt, the runtime and the tools would be wrong.
-const WC_EXE_SHA256 = "c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca";
+/** wc_program.c: what the runtime needs from the program's EXE header and name. */
+function writeProgram(): void {
+  const m = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest;
+  const h = (n: number): string => `0x${n.toString(16).padStart(4, "0")}`;
+  const text = [
+    "/* Generated by cli.ts: the program's start, from its EXE header. */",
+    '#include "wc_rt.h"', "",
+    `const struct wc_program wc_program = { "${game.exe}", ${h(m.entry.cs)}, ${h(m.entry.ip)}, ${h(m.stack.ss)}, ${h(m.stack.sp)} };`,
+    "",
+  ].join("\n");
+  const file = path.join(recompDir, "wc_program.c");
+  if (!existsSync(file) || readFileSync(file, "utf8") !== text) writeFileSync(file, text);
+}
 
 function doFlatten(): void {
-  const exe = path.resolve(values.exe);
+  const exe = exePath;
   const file = readFileSync(exe);
   const sha = createHash("sha256").update(file).digest("hex");
-  if (sha !== WC_EXE_SHA256) {
-    throw new Error(`${exe} is not the expected WC.EXE (SHA-256 ${sha}, expected ${WC_EXE_SHA256}); ` +
+  if (sha !== game.sha256) {
+    throw new Error(`${exe} is not the expected ${game.exe} (SHA-256 ${sha}, expected ${game.sha256}); ` +
       "this project needs the GOG release's");
   }
   const { exe: flat, manifest } = flatten(file, exe);
@@ -199,7 +235,7 @@ async function main(): Promise<void> {
       mkdirSync(capturesDir, { recursive: true });
       for (let round = 1; round <= 50; round++) {
         const res = spawnSync(wcExe, [gameDir], {
-          encoding: "utf8", timeout: 60_000, env: { ...process.env, WC_LOADED_DIR: capturesDir, WC_HEADLESS: "1", WC_CYCLES: process.env.WC_CYCLES ?? "max" },
+          encoding: "utf8", timeout: Number(values.seconds) * 1000, env: { ...process.env, WC_LOADED_DIR: capturesDir, WC_HEADLESS: "1", WC_CYCLES: process.env.WC_CYCLES ?? "max" },
         });
         const loaded = /wc: call into code loaded at runtime at ([0-9a-f]{4}):([0-9a-f]{4})/.exec(res.stderr ?? "");
         const capture = /wc: saved loaded code to (.+)/.exec(res.stderr ?? "")?.[1];
@@ -238,7 +274,7 @@ async function main(): Promise<void> {
         const missing = /wc: missing code at ([0-9a-f]+)/.exec(res.stderr ?? "")?.[1];
         if (res.status !== 4 || !missing) {
           const timedOut = (res.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
-          console.log(`round ${round}: ` + (timedOut ? "wc was still running after 60 s, no missing code so far"
+          console.log(`round ${round}: ` + (timedOut ? `wc was still running after ${values.seconds} s, no missing code so far`
             : `wc stopped (exit ${res.status ?? res.signal}):`));
           console.log((res.stderr ?? "").split("\n").slice(-8).join("\n"));
           break;
@@ -256,7 +292,7 @@ async function main(): Promise<void> {
       break;
     }
     default:
-      console.error("usage: node src/cli.ts <flatten|fid|decompile|redecompile|recomp|build|web|discover> [--exe WC.EXE] [--borland dir] [--out dir]");
+      console.error("usage: node src/cli.ts <flatten|fid|decompile|redecompile|recomp|build|web|discover> [--game wc|sm2] [--exe file] [--borland dir] [--out dir]");
       process.exit(2);
   }
 }
