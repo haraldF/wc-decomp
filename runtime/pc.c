@@ -194,6 +194,7 @@ static const struct { const char *name; char ch; uint8_t code; } keys[] = {
 	{ "esc", 27, 0x01 }, { "enter", '\r', 0x1c }, { "space", ' ', 0x39 }, { "tab", '\t', 0x0f },
 	{ "backspace", 127, 0x0e }, { "up", 0, 0x48 }, { "down", 0, 0x50 }, { "left", 0, 0x4b },
 	{ "right", 0, 0x4d }, { "f1", 0, 0x3b }, { "f2", 0, 0x3c }, { "f3", 0, 0x3d }, { "f10", 0, 0x44 },
+	{ "alt", 0, 0x38 }, { "ctrl", 0, 0x1d },
 };
 static const char row_chars[] = "1234567890-=\0\0qwertyuiop[]\0\0asdfghjkl;'`\0\\zxcvbnm,./";
 

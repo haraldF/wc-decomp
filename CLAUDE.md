@@ -366,7 +366,9 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   2750:+lmb,2756:-lmb,9200:b,...,9260:+enter,9266:-enter,9300:m,...,9340:+enter,9346:-enter,
   11000:+space,11006:-space` reaches the rec room; `13000:@305.100` + click the barracks;
   `15500:@300.60` + click the briefing (clicking at 60,72 keeps the pointer off the simulator).
-  Continue Campaign is at 60,115; a sleeper at 137,90 asks "(Y/N)" ~700 ticks later. Esc in the
+  Alt-X in the main menu (`2700:+alt,2710:+x,2716:-x,2720:-alt,2900:+y,2906:-y`) quits; the exit
+  needed 11711, 116ee and 104a0, and ends in DOS 4Ch with AL=87h (exit 135; WC.EXE's menu ignores
+  Alt-X). Continue Campaign is at 60,115; a sleeper at 137,90 asks "(Y/N)" ~700 ticks later. Esc in the
   briefing goes back to the barracks; Space steps through it into flight. WC_KEYS takes up to
   1024 entries. Discovery: `discover --game sm2 --seconds 900` with such keys (and `--exe` in a
   scratch copy of the game folder holding a save from the mission tool) found nothing missing
@@ -377,5 +379,5 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in
   `ghidra_scripts/`. C11 runtime in `runtime/`, tab-indented, short comments.
-- Debug env vars: `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
+- Debug env vars (`WC_KEYS` key names: esc, enter, space, tab, backspace, arrows, f1-f3, f10, alt, ctrl, characters): `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
   `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_MT32`, `WC_MT32_MACHINE`. Ctrl-C prints a report.
