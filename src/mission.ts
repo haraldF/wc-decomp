@@ -55,6 +55,9 @@ const STATE = ROSTER + ROSTER_SIZE; // campaign state (DS:c240)
 const STATE_SIZE = 0x44;
 // Campaign state fields (offsets in STATE).
 const WAR_STATUS = 0x02;    // set by the series transition taken (series record +7/+9)
+const MEDALS = 0x04;        // how many of each: Bronze, Silver and Gold Star, Golden Sun, Medal of Valor
+const RIBBONS = 0x09;       // 12 flags; both shown in the barracks' medal case (ovl15)
+const RIBBONS_END = 0x15;
 const MISSION = 0x15;       // from 0
 const SERIES = 0x16;        // from 1
 const HISTORY_COUNT = 0x17; // series completed so far
@@ -253,8 +256,8 @@ function writeSave(spec: string): void {
   const { roster, state } = values.move
     ? { roster: Buffer.from(wld.subarray(at + ROSTER, at + ROSTER + ROSTER_SIZE)), state: Buffer.from(wld.subarray(at + STATE, at + STATE + STATE_SIZE)) }
     : newCampaignState(program);
-  // --transfer: the pilots (the player, with kills, rank and medals, and the wingmen) of a Wing
-  // Commander save game, in a new campaign
+  // --transfer: the pilots (the player, with kills and rank, and the wingmen) of a Wing Commander
+  // save game, in a new campaign; the player's medals and ribbons are in the campaign state
   let from = "";
   if (values.transfer !== undefined) {
     const src = Number(values.transfer) - 1;
@@ -263,6 +266,7 @@ function writeSave(spec: string): void {
     const wc = wcFile === file ? wld : existsSync(wcFile) ? readFileSync(wcFile) : Buffer.alloc(0);
     if (wc.length !== SLOTS * SLOT_SIZE || wc[src * SLOT_SIZE + USED] === 0) throw new Error(`${WC.saves} has no save game in slot ${src + 1}`);
     wc.copy(roster, 0, src * SLOT_SIZE + ROSTER, src * SLOT_SIZE + ROSTER + ROSTER_SIZE);
+    wc.copy(state, MEDALS, src * SLOT_SIZE + STATE + MEDALS, src * SLOT_SIZE + STATE + RIBBONS_END);
     from = wc.toString("latin1", src * SLOT_SIZE, src * SLOT_SIZE + USED).replace(/\0.*$/s, "");
   }
   const player = PLAYER * PILOT_SIZE;
