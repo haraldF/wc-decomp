@@ -11,7 +11,7 @@ the user doesn't care about naming or understanding the code, only about running
 
 Never commit game files or anything derived from their bytes: `WC.EXE`, `GAMEDAT/`, `*.DRV`,
 captured driver images (`out/loaded/*.bin`), `image.bin`/`relocs.bin`, the Borland libraries
-(`../tc/`), screenshots. Everything under `out/` is generated and ignored.
+(`../tc/`), screenshots, the Roland ROM images (`roland-mt-32-roms/`, ignored). Everything under `out/` is generated and ignored.
 
 ## The executable
 
@@ -217,6 +217,22 @@ x86 real-mode modelling bugs the scripts work around:
   write), and pushed into an SDL3 audio stream (60 ms prefilled; cleared if over 0.25 s queued).
 - `WC_WAV=file` records the sound, also headless: the intro's music starts after ~3 s, peaks
   around +-1800 (quiet, like the chip's raw output).
+- The music card is the config's (or the arguments') word: `a<port>` AdLib (`a904` = 388h,
+  DS:772c = 2), `r`/`R` Roland (1), `p`/`P` (3); arguments come after the config's words, so the
+  last one wins (main.c appends `r` with WC_MT32). The driver is entry (card - 1) of `strax.drv`
+  (FUN_19c5_14f8); the Roland one is d9000 (SM2.EXE loads it unchanged: same hash; it needed its
+  own discover round, like every driver, since each program has its own recompiled drivers).
+- Without a game folder the runtime used "." and the game ended in "Abnormal program termination";
+  main.c now checks that the folder has the program's EXE.
+- MT-32 (runtime/mt32.c, munt's libmt32emu, submodule, LGPL 2.1+, C interface, static; the
+  project is C and C++ for it): WC_MT32=ROM folder, WC_MT32_MACHINE (munt's machine names). The
+  driver never enters UART mode: after a reset (FFh) it sends every message in intelligent mode
+  behind D0h ("want to send data"; DFh before SysEx), so data bytes go to the synth in either
+  mode. It doesn't wait for interrupts. The synth renders even when nothing hears it (quick start,
+  no output), or its MIDI queue would fill. Only one device opens the sound (AdLib otherwise);
+  sound.c has the output and WC_WAV. The intro's music starts after ~10 s, at 32 kHz, peaks near
+  full scale (a few clipped samples, as munt makes it).
+- In the browser there is no MT-32 yet (the page would need the ROMs as files, apart from the game's).
 
 ## CPU speed
 
@@ -254,12 +270,12 @@ x86 real-mode modelling bugs the scripts work around:
 ## State
 
 The intro runs natively (~400–600 M instructions/s); a frame-buffer screenshot shows the credits.
-The SDL3 window shows it live, takes the keyboard and mouse, and plays AdLib music. Missing:
-MT-32 / Sound Blaster digital sound, text mode. A joystick or game controller is the PC joystick.
+The SDL3 window shows it live, takes the keyboard and mouse, and plays AdLib or (WC_MT32) MT-32
+music. Missing: Sound Blaster digital sound, text mode, the MT-32 in the browser. A joystick or game controller is the PC joystick.
 
 The Secret Missions 2 (`SM2.EXE`) run too, built the same way with `--game sm2` (see below).
-The same runs in the browser (`npm run web`, see below). Sound via Nuked-OPL3 (LGPL) on 388h/389h, later libmt32emu — not DOSBox Staging's audio code (GPL,
-tied to its mixer).
+The same runs in the browser (`npm run web`, see below). Sound via Nuked-OPL3 (LGPL) on 388h/389h and libmt32emu (LGPL) behind an MPU-401 at 330h/331h —
+not DOSBox Staging's audio code (GPL, tied to its mixer).
 
 ## Web (runtime/host_web.c, web/index.html)
 
@@ -362,4 +378,4 @@ tied to its mixer).
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in
   `ghidra_scripts/`. C11 runtime in `runtime/`, tab-indented, short comments.
 - Debug env vars: `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
-  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`. Ctrl-C prints a report.
+  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_MT32`, `WC_MT32_MACHINE`. Ctrl-C prints a report.

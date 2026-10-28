@@ -4,7 +4,7 @@
 # With Emscripten (`npm run web`: emcmake, out/build-web), it builds the web page instead: wc.js and
 # wc.wasm next to web/index.html in out/web (sm2.js and sm2.wasm for the Secret Missions 2, same page).
 cmake_minimum_required(VERSION 3.24)
-project(wc LANGUAGES C)
+project(wc LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -30,6 +30,12 @@ add_library(opl3 STATIC third_party/Nuked-OPL3/opl3.c)
 target_include_directories(opl3 PUBLIC third_party/Nuked-OPL3)
 target_compile_options(opl3 PRIVATE -w)
 
+# Roland MT-32: munt's libmt32emu (git submodule), static, its C interface
+set(libmt32emu_SHARED OFF CACHE BOOL "" FORCE)
+set(libmt32emu_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(libmt32emu_PACKAGE_TYPE Devel CACHE STRING "" FORCE)
+add_subdirectory(third_party/munt/mt32emu EXCLUDE_FROM_ALL)
+
 # The recompiled program and drivers. The generated code has unused labels and variables by
 # design; -O1 keeps its huge functions quick to compile.
 file(GLOB WC_GENERATED CONFIGURE_DEPENDS "${WC_RECOMP_DIR}/*.c")
@@ -45,7 +51,7 @@ list(FILTER WC_RUNTIME EXCLUDE REGEX "/host_(sdl|web)\\.c$")
 add_executable(wc ${WC_RUNTIME} $<TARGET_OBJECTS:wc_generated>)
 target_include_directories(wc PRIVATE runtime "${WC_RECOMP_DIR}")
 target_compile_options(wc PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_link_libraries(wc PRIVATE opl3)
+target_link_libraries(wc PRIVATE opl3 MT32Emu::mt32emu)
 set_target_properties(wc PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${WC_BIN_DIR}")
 
 if(EMSCRIPTEN)

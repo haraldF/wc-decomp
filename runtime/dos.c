@@ -129,6 +129,14 @@ static void host_path(const char *rel, char *out, size_t size)
 	}
 }
 
+/* Whether the game folder has this file (a DOS path) */
+int dos_file_exists(const char *dos)
+{
+	char path[1024];
+	host_path(dos, path, sizeof path);
+	return !access(path, R_OK);
+}
+
 static int dos_error(void)
 {
 	switch (errno) {

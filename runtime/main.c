@@ -37,6 +37,7 @@
 void pc_init(int tty);
 extern const char *wc_game_dir;
 extern uint16_t wc_psp_seg;
+int dos_file_exists(const char *dos);
 
 enum {
 	BUILD_SEG = 0x1000,  /* segment the generated code was produced for */
@@ -93,6 +94,11 @@ static void set_command_line(uint8_t *psp, int argc, char **argv)
 			exit(1);
 		}
 		n += (size_t)w;
+	}
+	/* WC_MT32 (mt32.c): "r" picks the Roland; the game reads its arguments after the config's words */
+	if (getenv("WC_MT32") && n + 2 < sizeof line) {
+		memcpy(line + n, " r", 3);
+		n += 2;
 	}
 	psp[0x80] = (uint8_t)n;
 	memcpy(psp + 0x81, line, n);
@@ -169,6 +175,13 @@ int main(int argc, char **argv)
 	if (argc > 1) {
 		wc_game_dir = argv[1];
 	}
+#ifndef __EMSCRIPTEN__
+	if (!dos_file_exists(wc_program.exe)) { /* the game would end with "Abnormal program termination" */
+		fprintf(stderr, "wc: no %s in %s; usage: %s <game folder> [arguments]\n", wc_program.exe,
+			wc_game_dir, basename(argv[0]));
+		return 1;
+	}
+#endif
 
 	load_image(dir, load_seg);
 	setup_process(load_seg, argc > 2 ? argc - 2 : 0, argv + 2);

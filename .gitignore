@@ -12,3 +12,5 @@ out/
 *.pkg
 .DS_Store
 *.swp
+roland-mt-32-roms/
+*.rom

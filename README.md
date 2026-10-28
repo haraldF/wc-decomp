@@ -16,7 +16,7 @@ Prerequisites (Homebrew):
 ```bash
 brew install node ghidra cmake ninja sdl3   # Node 23.6 or later; Ghidra 12.2 brings its JDK
 brew install emscripten                     # only for the web page (npm run web)
-git submodule update --init                 # Nuked-OPL3, for AdLib sound
+git submodule update --init                 # Nuked-OPL3 and munt, for AdLib and MT-32 sound
 npm ci
 ```
 
@@ -200,6 +200,18 @@ Sound: AdLib music. The OPL2 at ports 388h/389h is emulated by
 real time and the window plays them through SDL3. `WC_WAV=file.wav` also records them (works
 headless too).
 
+Roland MT-32 (optional, natively): `WC_MT32=folder` emulates an MPU-401 (UART mode, ports
+330h/331h) with an MT-32 behind it, [munt](https://github.com/munt/munt)'s libmt32emu (LGPL 2.1+,
+a submodule too), and has the game play its Roland music (it adds the game's own `r` argument,
+which overrides the music card in `WINGCMDR.CFG`). The folder holds the ROM images (control and
+PCM; not included, you need your own), also in subfolders; munt recognises them by their
+contents, whatever the file names. The first model found is used, in this order: MT-32 1.07 ...
+1.04, the later MT-32s, CM-32L; `WC_MT32_MACHINE=cm32l_1_02` (munt's names) picks one.
+
+```bash
+WC_MT32=roland-mt-32-roms out/bin/wc ../game
+```
+
 Joystick: a joystick or game controller (SDL3; in the browser the Gamepad API) is the PC joystick at
 the game port (201h, `runtime/joystick.c`). Button 1 fires the guns, button 2 rolls while held (both
 together: a missile). A flight stick: X/Y steer, the trigger is button 1, the thumb button button 2,
@@ -212,7 +224,7 @@ sticks without reporting them. The game finds the joystick only at startup, so t
 reports one, centred and still unless a controller moves it (one plugged in later works too;
 `WC_JOYSTICK=0`: none). `WC_KEYS` entries `%x.y` move it (-100..100 each), `j1`/`j2` press its buttons.
 
-Not supported yet: text-mode output, Roland MT-32 and Sound Blaster digital sound.
+Not supported yet: text-mode output, Sound Blaster digital sound, the MT-32 in the browser.
 
 ### Starting at any mission
 
