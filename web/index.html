@@ -443,8 +443,36 @@ function run(wc, canvas, audio) {
       image.data.set(wc.HEAPU8.subarray(p, p + 320 * 200 * 4));
       ctx.putImageData(image, 0, 0);
     }
+    gamepad();
     requestAnimationFrame(draw);
   };
+
+  // A game controller (the Gamepad API, polled every frame) as the joystick. A gamepad (standard
+  // mapping): the left stick or the d-pad's left/right, A or the right trigger button 1, B or the
+  // left trigger button 2; X Enter = missile, RB Tab = afterburner, d-pad up/down +/- = speed,
+  // Start Esc. Any other joystick (a flight stick): axes 0 and 1, its buttons 1 and 2; 3 Enter, 4 Tab.
+  const padKeys = { 2: 0x1c, 5: 0x0f, 12: 0x0d, 13: 0x0c, 9: 0x01 }, stickKeys = { 2: 0x1c, 3: 0x0f };
+  const padHeld = new Set();
+  let padState = "";
+  const deadZone = (v) => (Math.abs(v) < 0.1 ? 0 : Math.round(((v - Math.sign(v) * 0.1) / 0.9) * 1000));
+  const gamepad = () => {
+    const pads = navigator.getGamepads?.().filter((p) => p && p.connected) ?? [];
+    const pad = pads.find((p) => p.mapping === "standard") ?? pads[0];
+    const standard = pad?.mapping === "standard";
+    const pressed = (i) => !!pad?.buttons[i]?.pressed;
+    for (const [i, sc] of Object.entries(standard ? padKeys : stickKeys)) {
+      if (pressed(i) && !padHeld.has(i)) { padHeld.add(i); wc._web_key(sc); }
+      else if (!pressed(i) && padHeld.has(i)) { padHeld.delete(i); wc._web_key(sc | 0x80); }
+    }
+    let x = pad ? deadZone(pad.axes[0] ?? 0) : 0, y = pad ? deadZone(pad.axes[1] ?? 0) : 0;
+    if (standard && pressed(14)) x = -1000;
+    if (standard && pressed(15)) x = 1000;
+    const buttons = standard ? (pressed(0) || pressed(7) ? 1 : 0) | (pressed(1) || pressed(6) ? 2 : 0)
+      : (pressed(0) ? 1 : 0) | (pressed(1) ? 2 : 0);
+    const state = `${x},${y},${buttons}`;
+    if (state !== padState) { padState = state; wc._web_joystick(x, y, buttons); }
+  };
+  window.addEventListener("gamepadconnected", (e) => log(`Game controller "${e.gamepad.id}" as the joystick`));
   requestAnimationFrame(draw);
 
   // The mouse's speed in full screen (pointer locked): 1 crosses the picture with a movement as wide

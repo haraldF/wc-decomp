@@ -61,6 +61,20 @@ captured driver images (`out/loaded/*.bin`), `image.bin`/`relocs.bin`, the Borla
   the terminal. Paths reached rarely need several runs; replay them and add each address.
 - Port 201h (joystick) must read FFh when there is none: 00 means a stick in the corner with all
   buttons pressed, which kept the menu cursor stuck.
+- Joystick (runtime/joystick.c): the game measures an axis by counting how many of N reads find
+  its bit still 1 after a write (FUN_198a_007c), not by time, so the emulated one-shot lasts a number
+  of reads (centre 256, +-240). At startup (ovl28, FUN_1943_0003) it raises N in steps of 40h until
+  the centred stick fits, then uses N = (that + 100h) * 2 = 480h and takes the centre; detected once,
+  so a stick is always reported (still and centred: the game posts joystick events only off centre
+  or on button changes). A reading of N later means "unplugged" and turns it off for good.
+  Its poll is a hook (1cfc:0018): 1bbd:0184 in menus (buttons only), 13be:087b in flight (posts
+  event 6 with x/y -8..8 at DS:00C9/00CB, buttons DS:00CD); flight takes x into DS:C3AC (2acc:39fc),
+  the mouse's into DS:00EF too. Checked headless: `%100.0` gives +8, `%-100.50` -8.
+- The user's stick is a Logitech Extreme 3D Pro (HID joystick, not an SDL gamepad: 4 axes, 12
+  buttons, a hat). With SDL's MFi (GameController framework) backend on, SDL saw no joystick at all,
+  even with a window; with `SDL_HINT_JOYSTICK_MFI` "0" the IOKit backend reports it. The host
+  handles plain joysticks (SDL_EVENT_JOYSTICK_*) as well as gamepads; the page takes
+  non-standard-mapping pads too.
 
 ## Ghidra (12.2, Homebrew; JAVA_HOME from the `ghidraRun` wrapper, openjdk@25)
 
@@ -234,7 +248,7 @@ x86 real-mode modelling bugs the scripts work around:
 
 The intro runs natively (~400–600 M instructions/s); a frame-buffer screenshot shows the credits.
 The SDL3 window shows it live, takes the keyboard and mouse, and plays AdLib music. Missing:
-MT-32 / Sound Blaster digital sound, text mode, joystick.
+MT-32 / Sound Blaster digital sound, text mode. A joystick or game controller is the PC joystick.
 
 The Secret Missions 2 (`SM2.EXE`) run too, built the same way with `--game sm2` (see below).
 The same runs in the browser (`npm run web`, see below). Sound via Nuked-OPL3 (LGPL) on 388h/389h, later libmt32emu — not DOSBox Staging's audio code (GPL,
@@ -341,4 +355,4 @@ tied to its mixer).
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in
   `ghidra_scripts/`. C11 runtime in `runtime/`, tab-indented, short comments.
 - Debug env vars: `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
-  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`. Ctrl-C prints a report.
+  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`. Ctrl-C prints a report.

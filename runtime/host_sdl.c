@@ -1,5 +1,5 @@
 /* The host with SDL3: a window showing the VGA picture at 4:3, the keyboard as PC scancodes, the
- * mouse for the mouse driver (mouse.c).
+ * mouse for the mouse driver (mouse.c), a game controller as the joystick (joystick.c).
  * Cmd+F toggles full screen, Cmd+Up/Down change the speed (in flight the frame rate, elsewhere the
  * instruction rate), Cmd+Left/Right the mouse's speed in full screen (all shown in the title), Cmd+Q or closing the window quits. WC_HEADLESS=1: no
  * window. */
@@ -33,7 +33,11 @@ int host_open(void)
 {
 	const char *headless = getenv("WC_HEADLESS");
 	if (headless && *headless && *headless != '0') return 0;
-	if (!SDL_Init(SDL_INIT_VIDEO)) {
+	/* macOS's GameController framework claims HID joysticks such as flight sticks without reporting
+	 * them, and SDL's IOKit backend then leaves them alone: without it, IOKit and HIDAPI see them all
+	 * (the environment variable SDL_JOYSTICK_MFI=1 overrides this) */
+	SDL_SetHint(SDL_HINT_JOYSTICK_MFI, "0");
+	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
 		fprintf(stderr, "wc: no window (%s); running headless\n", SDL_GetError());
 		return 0;
 	}
@@ -227,6 +231,92 @@ static void mouse(const SDL_Event *e)
 	pc_mouse(x, y, buttons);
 }
 
+/* ---- game controllers and joysticks as joystick A: a gamepad's left stick (or d-pad) and two
+ * buttons, a joystick's first two axes and buttons ---- */
+
+/* The controller's buttons the joystick has: A or the right trigger fires (button 1), B or the
+ * left trigger is button 2; a few others are keys. */
+static const struct { SDL_GamepadButton button; uint8_t key; } pad_keys[] = {
+	{ SDL_GAMEPAD_BUTTON_WEST, 0x1c },           /* Enter: fire a missile */
+	{ SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, 0x0f }, /* Tab: afterburner */
+	{ SDL_GAMEPAD_BUTTON_DPAD_UP, 0x0d },        /* +: faster */
+	{ SDL_GAMEPAD_BUTTON_DPAD_DOWN, 0x0c },      /* -: slower */
+	{ SDL_GAMEPAD_BUTTON_START, 0x01 },          /* Esc */
+};
+
+static int dead_zone(int16_t raw)
+{
+	int v = raw * 1000 / 32767;
+	/* a little dead zone against a stick that doesn't quite centre; the rest stretched to full range */
+	if (v > -100 && v < 100) return 0;
+	return v > 0 ? (v - 100) * 1000 / 900 : (v + 100) * 1000 / 900;
+}
+
+static void gamepad(const SDL_Event *e)
+{
+	if (e->type == SDL_EVENT_GAMEPAD_ADDED) {
+		SDL_Gamepad *g = SDL_OpenGamepad(e->gdevice.which);
+		if (g) fprintf(stderr, "wc: game controller \"%s\" as the joystick\n", SDL_GetGamepadName(g));
+		return;
+	}
+	if (e->type == SDL_EVENT_GAMEPAD_REMOVED) {
+		SDL_Gamepad *g = SDL_GetGamepadFromID(e->gdevice.which);
+		if (g) SDL_CloseGamepad(g);
+		pc_joystick(0, 0, 0);
+		return;
+	}
+	SDL_Gamepad *g = SDL_GetGamepadFromID(e->gdevice.which);
+	if (!g) return;
+	if (e->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e->type == SDL_EVENT_GAMEPAD_BUTTON_UP) {
+		for (size_t i = 0; i < sizeof pad_keys / sizeof *pad_keys; i++) {
+			if (e->gbutton.button == pad_keys[i].button) pc_key(pad_keys[i].key | (e->gbutton.down ? 0 : 0x80));
+		}
+	}
+	int x = dead_zone(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX)), y = dead_zone(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY));
+	if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) x = -1000;
+	if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) x = 1000;
+	int buttons = (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_SOUTH) ||
+		SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000 ? 1 : 0) |
+		(SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_EAST) ||
+		SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000 ? 2 : 0);
+	pc_joystick(x, y, buttons);
+}
+
+/* A joystick that isn't a gamepad (a flight stick): X and Y steer, the trigger (button 1) and the
+ * thumb button (2) are the joystick's; buttons 3 and 4 are Enter and Tab, the hat up/down + and -. */
+static const uint8_t stick_keys[] = { 0, 0, 0x1c, 0x0f };
+
+static void joystick(const SDL_Event *e)
+{
+	SDL_JoystickID id = e->jdevice.which;
+	if (SDL_IsGamepad(id)) return; /* its gamepad events count */
+	if (e->type == SDL_EVENT_JOYSTICK_ADDED) {
+		SDL_Joystick *j = SDL_OpenJoystick(id);
+		if (j) fprintf(stderr, "wc: joystick \"%s\"\n", SDL_GetJoystickName(j));
+		return;
+	}
+	SDL_Joystick *j = SDL_GetJoystickFromID(id);
+	if (!j) return;
+	if (e->type == SDL_EVENT_JOYSTICK_REMOVED) {
+		SDL_CloseJoystick(j);
+		pc_joystick(0, 0, 0);
+		return;
+	}
+	if ((e->type == SDL_EVENT_JOYSTICK_BUTTON_DOWN || e->type == SDL_EVENT_JOYSTICK_BUTTON_UP) &&
+		e->jbutton.button < sizeof stick_keys && stick_keys[e->jbutton.button]) {
+		pc_key(stick_keys[e->jbutton.button] | (e->jbutton.down ? 0 : 0x80));
+	}
+	if (e->type == SDL_EVENT_JOYSTICK_HAT_MOTION && e->jhat.hat == 0) {
+		static uint8_t hat;
+		uint8_t now = e->jhat.value & (SDL_HAT_UP | SDL_HAT_DOWN);
+		if ((now ^ hat) & SDL_HAT_UP) pc_key(0x0d | (now & SDL_HAT_UP ? 0 : 0x80));
+		if ((now ^ hat) & SDL_HAT_DOWN) pc_key(0x0c | (now & SDL_HAT_DOWN ? 0 : 0x80));
+		hat = now;
+	}
+	pc_joystick(dead_zone(SDL_GetJoystickAxis(j, 0)), dead_zone(SDL_GetJoystickAxis(j, 1)),
+		(SDL_GetJoystickButton(j, 0) ? 1 : 0) | (SDL_GetJoystickButton(j, 1) ? 2 : 0));
+}
+
 /* ---- sound: the emulation's samples into an SDL audio stream (it converts the rate) ---- */
 
 int host_audio_open(unsigned rate)
@@ -303,6 +393,17 @@ _Noreturn void host_run(void (*game)(void))
 			case SDL_EVENT_MOUSE_MOTION:
 			case SDL_EVENT_MOUSE_BUTTON_DOWN:
 			case SDL_EVENT_MOUSE_BUTTON_UP: mouse(&e); break;
+			case SDL_EVENT_GAMEPAD_ADDED:
+			case SDL_EVENT_GAMEPAD_REMOVED:
+			case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+			case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+			case SDL_EVENT_GAMEPAD_BUTTON_UP: gamepad(&e); break;
+			case SDL_EVENT_JOYSTICK_ADDED:
+			case SDL_EVENT_JOYSTICK_REMOVED:
+			case SDL_EVENT_JOYSTICK_AXIS_MOTION:
+			case SDL_EVENT_JOYSTICK_HAT_MOTION:
+			case SDL_EVENT_JOYSTICK_BUTTON_DOWN:
+			case SDL_EVENT_JOYSTICK_BUTTON_UP: joystick(&e); break;
 			case SDL_EVENT_WINDOW_ENTER_FULLSCREEN: SDL_SetWindowRelativeMouseMode(window, true); break;
 			case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN: SDL_SetWindowRelativeMouseMode(window, false); break;
 			}

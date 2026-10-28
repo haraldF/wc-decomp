@@ -200,7 +200,18 @@ Sound: AdLib music. The OPL2 at ports 388h/389h is emulated by
 real time and the window plays them through SDL3. `WC_WAV=file.wav` also records them (works
 headless too).
 
-Not supported yet: text-mode output, Roland MT-32 and Sound Blaster digital sound, joystick.
+Joystick: a joystick or game controller (SDL3; in the browser the Gamepad API) is the PC joystick at
+the game port (201h, `runtime/joystick.c`). Button 1 fires the guns, button 2 rolls while held (both
+together: a missile). A flight stick: X/Y steer, the trigger is button 1, the thumb button button 2,
+buttons 3 and 4 Enter (missile) and Tab (afterburner), the hat up/down +/- (speed). A gamepad: the
+left stick (or the d-pad's left/right) steers, A or the right trigger is button 1, B or the left
+trigger button 2, X Enter, RB Tab, d-pad up/down +/-, Start Esc. On macOS no driver is needed; the
+runtime turns off SDL's GameController-framework backend (`SDL_JOYSTICK_MFI`), which claimed flight
+sticks without reporting them. The game finds the joystick only at startup, so the runtime always
+reports one, centred and still unless a controller moves it (one plugged in later works too;
+`WC_JOYSTICK=0`: none). `WC_KEYS` entries `%x.y` move it (-100..100 each), `j1`/`j2` press its buttons.
+
+Not supported yet: text-mode output, Roland MT-32 and Sound Blaster digital sound.
 
 ### Starting at any mission
 
@@ -233,7 +244,7 @@ the save is named after that slot's.
 The same runtime builds with [Emscripten](https://emscripten.org) (`brew install emscripten`) into a
 web page: `runtime/host_web.c` takes the place of the SDL window, and `web/index.html` shows the
 picture on a canvas (full screen with ⌘/Ctrl+F or the button; the pointer is captured there), passes
-the keyboard and mouse to the game and plays the AdLib music with an AudioWorklet.
+the keyboard, mouse and a joystick or game controller to the game and plays the AdLib music with an AudioWorklet.
 
 ```bash
 npm run recomp && npm run discover   # as for the native build, if not done yet

@@ -20,6 +20,8 @@ void opl_out(uint64_t port, uint64_t value);
 void opl_poll(uint64_t now);
 void opl_init(void);
 void ems_init(void);
+uint8_t joystick_in(void);
+void joystick_out(void);
 void vga_out(uint64_t port, uint64_t value);
 void vga_poll(uint64_t now);
 void vga_init(void);
@@ -215,12 +217,13 @@ static void press(uint8_t code)
 /* WC_KEYS="tick:key,...": keys to press after that many timer interrupts, for testing.
  * A key is a character or a name (esc, enter, space, up, ...); it is pressed and released at
  * once, or only pressed with a + in front (+up) and only released with a - (-up). The mouse:
- * @x.y moves it (320x200), lmb/rmb click (+lmb/-lmb hold and release); with WC_MOUSE=1. */
+ * @x.y moves it (320x200), lmb/rmb click (+lmb/-lmb hold and release); with WC_MOUSE=1. The
+ * joystick: %x.y moves the stick (-100..100 each, 0 centred), j1/j2 its buttons (+j1/-j1). */
 enum { SCRIPT_MAX = 1024 };
 static struct { uint64_t tick; uint8_t code; char how; int16_t mx, my; } script[SCRIPT_MAX];
-static int script_mx = 160, script_my = 100, script_buttons;
+static int script_mx = 160, script_my = 100, script_buttons, script_jx, script_jy, script_jbuttons;
 static int script_len, script_pos;
-static uint64_t ticks;
+static uint64_t ticks, script_jrelease;
 static uint8_t script_held;          /* key pressed with + and not released yet */
 static uint64_t script_repeat_ns;    /* when it repeats next (typematic: 0.5 s, then 10.9 per second) */
 
@@ -246,6 +249,22 @@ static void parse_script(const char *s)
 			script[script_len].how = 'm';
 			script[script_len].mx = (int16_t)mx;
 			script[script_len++].my = (int16_t)my;
+			s += used + (s[used] == ',');
+			continue;
+		}
+		if (sscanf(n, "%%%d.%d", &mx, &my) == 2) { /* stick to x.y */
+			script[script_len].tick = t;
+			script[script_len].how = 'j';
+			script[script_len].mx = (int16_t)mx;
+			script[script_len++].my = (int16_t)my;
+			s += used + (s[used] == ',');
+			continue;
+		}
+		if (!strcmp(n, "j1") || !strcmp(n, "j2")) { /* joystick button 1 or 2 */
+			script[script_len].tick = t;
+			script[script_len].how = how ? how : 'c';
+			script[script_len].mx = -2;
+			script[script_len++].code = n[1] == '1' ? 1 : 2;
 			s += used + (s[used] == ',');
 			continue;
 		}
@@ -307,6 +326,16 @@ static void poll_keyboard(void)
 			script_my = my;
 			pc_mouse(script_mx, script_my, script_buttons);
 		}
+		else if (how == 'j') {
+			script_jx = mx * 10;
+			script_jy = my * 10;
+			pc_joystick(script_jx, script_jy, script_jbuttons);
+		}
+		else if (mx == -2) { /* joystick button, held for a little while when clicked */
+			if (how != '-') pc_joystick(script_jx, script_jy, script_jbuttons |= code);
+			if (how == '-') pc_joystick(script_jx, script_jy, script_jbuttons &= ~code);
+			if (how == 'c') script_jrelease = ticks + 6;
+		}
 		else if (mx == -1) { /* mouse button: click, or + press / - release */
 			if (how != '-') pc_mouse(script_mx, script_my, script_buttons |= code);
 			if (how != '+') pc_mouse(script_mx, script_my, script_buttons &= ~code);
@@ -321,6 +350,10 @@ static void poll_keyboard(void)
 			if (script_held == code) script_held = 0;
 		}
 		else press(code);
+	}
+	if (script_jrelease && ticks >= script_jrelease) { /* a clicked joystick button goes up */
+		script_jrelease = 0;
+		pc_joystick(script_jx, script_jy, script_jbuttons = 0);
 	}
 	if (script_held && pc_now_ns() >= script_repeat_ns) {
 		kbd_push(script_held);
@@ -557,7 +590,7 @@ uint64_t port_in(uint64_t port, int size)
 	}
 	case 0x60: v = kbd_data; break;
 	case 0x61: v = 0; break;
-	case 0x201: v = 0xff; break; /* game port: no joystick (axes never time out, buttons up) */
+	case 0x201: v = joystick_in(); break;
 	case 0x64: v = kbd_head != kbd_tail ? 1 : 0; break;
 	case 0x3c7: case 0x3c8: case 0x3c9: case 0x3da: v = vga_in(port); break;
 	case 0x388: case 0x389: v = opl_in(port); break;
@@ -578,6 +611,7 @@ void port_out(uint64_t port, uint64_t value, int size)
 		pic_mask = (uint8_t)value;
 		break;
 	case 0x3c7: case 0x3c8: case 0x3c9: vga_out(port, value); break;
+	case 0x201: joystick_out(); break;
 	case 0x388: case 0x389: opl_out(port, value); break;
 	case 0x43:
 		if ((value >> 6) == 0) { /* channel 0 */
