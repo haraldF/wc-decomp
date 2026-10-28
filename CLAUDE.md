@@ -75,6 +75,13 @@ captured driver images (`out/loaded/*.bin`), `image.bin`/`relocs.bin`, the Borla
   even with a window; with `SDL_HINT_JOYSTICK_MFI` "0" the IOKit backend reports it. The host
   handles plain joysticks (SDL_EVENT_JOYSTICK_*) as well as gamepads; the page takes
   non-standard-mapping pads too.
+- Roll: the keys `,`/Ins (0x33/0x52) and `.`/Del (0x34/0x53) step DS:C3AE (2acc:39fe) towards -9/+9
+  with every make code (held keys ramp up through the typematic repeats); joystick button 2 held
+  turns the stick's x into the roll directly and its y into speed changes. The host repeats the
+  hat's left/right as `,`/`.` every 70 ms.
+- There is no reachable joystick calibration: WC.EXE has the texts ("Center Your Joystick ...",
+  "UPPER LEFT", "LOWER RIGHT", DS:2A8F) but no code refers to them; the game only takes the centre
+  at startup (FUN_1943_0003).
 
 ## Ghidra (12.2, Homebrew; JAVA_HOME from the `ghidraRun` wrapper, openjdk@25)
 

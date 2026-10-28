@@ -283,8 +283,20 @@ static void gamepad(const SDL_Event *e)
 }
 
 /* A joystick that isn't a gamepad (a flight stick): X and Y steer, the trigger (button 1) and the
- * thumb button (2) are the joystick's; buttons 3 and 4 are Enter and Tab, the hat up/down + and -. */
+ * thumb button (2) are the joystick's; buttons 3 and 4 are Enter and Tab, the hat up/down + and -,
+ * left/right , and . (roll), which repeat while held like keys: the game rolls faster with each. */
 static const uint8_t stick_keys[] = { 0, 0, 0x1c, 0x0f };
+static uint8_t hat;          /* the hat's last position */
+static uint8_t roll_key;     /* , or . held by the hat */
+static uint64_t roll_next_ns; /* when it repeats */
+
+static void roll_repeat(void)
+{
+	if (roll_key && SDL_GetTicksNS() >= roll_next_ns) {
+		pc_key(roll_key);
+		roll_next_ns += 70000000; /* ~14 per second, from the start */
+	}
+}
 
 static void joystick(const SDL_Event *e)
 {
@@ -299,6 +311,11 @@ static void joystick(const SDL_Event *e)
 	if (!j) return;
 	if (e->type == SDL_EVENT_JOYSTICK_REMOVED) {
 		SDL_CloseJoystick(j);
+		/* let go of what the hat held */
+		if (hat & SDL_HAT_UP) pc_key(0x0d | 0x80);
+		if (hat & SDL_HAT_DOWN) pc_key(0x0c | 0x80);
+		if (roll_key) pc_key(roll_key | 0x80);
+		hat = roll_key = 0;
 		pc_joystick(0, 0, 0);
 		return;
 	}
@@ -307,10 +324,16 @@ static void joystick(const SDL_Event *e)
 		pc_key(stick_keys[e->jbutton.button] | (e->jbutton.down ? 0 : 0x80));
 	}
 	if (e->type == SDL_EVENT_JOYSTICK_HAT_MOTION && e->jhat.hat == 0) {
-		static uint8_t hat;
-		uint8_t now = e->jhat.value & (SDL_HAT_UP | SDL_HAT_DOWN);
+		uint8_t now = e->jhat.value;
 		if ((now ^ hat) & SDL_HAT_UP) pc_key(0x0d | (now & SDL_HAT_UP ? 0 : 0x80));
 		if ((now ^ hat) & SDL_HAT_DOWN) pc_key(0x0c | (now & SDL_HAT_DOWN ? 0 : 0x80));
+		uint8_t roll = now & SDL_HAT_LEFT ? 0x33 : now & SDL_HAT_RIGHT ? 0x34 : 0;
+		if (roll != roll_key) {
+			if (roll_key) pc_key(roll_key | 0x80);
+			roll_key = roll;
+			roll_next_ns = SDL_GetTicksNS();
+			roll_repeat();
+		}
 		hat = now;
 	}
 	pc_joystick(dead_zone(SDL_GetJoystickAxis(j, 0)), dead_zone(SDL_GetJoystickAxis(j, 1)),
@@ -408,6 +431,7 @@ _Noreturn void host_run(void (*game)(void))
 			case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN: SDL_SetWindowRelativeMouseMode(window, false); break;
 			}
 		}
+		roll_repeat();
 		present(); /* waits for the display's refresh */
 	}
 }
