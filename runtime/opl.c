@@ -10,6 +10,7 @@
 #include "wc_rt.h"
 
 uint64_t pc_now_ns(void);
+int pc_warping(void);
 
 #define OPL_RATE 49716u /* the chip's own sample rate (14.31818 MHz / 288) */
 
@@ -57,6 +58,7 @@ void opl_poll(uint64_t now)
 	timers(now);
 	if (!playing) return;
 	uint64_t due = (now - start_ns) * OPL_RATE / 1000000000u;
+	if (pc_warping()) frames_done = due; /* the quick start (pc.c): no sound to make yet, none to queue */
 	if (due > frames_done + OPL_RATE / 10) frames_done = due - OPL_RATE / 10; /* stalled: skip */
 	int16_t buf[2 * 512];
 	while (frames_done < due) {

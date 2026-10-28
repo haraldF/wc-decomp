@@ -17,7 +17,8 @@
  *   WC_FPS=n        frames per second in space flight, where frames are paced instead (default 15; 0: off;
  *                   Cmd+Up/Down in flight)
  *   WC_STATS=1      print the frame rate in flight every second
- *   WC_EMS=0        no expanded memory (EMS, 8 MB by default, as in GOG's DOSBox) */
+ *   WC_EMS=0        no expanded memory (EMS, 8 MB by default, as in GOG's DOSBox)
+ *   WC_WARP=0       no quick start (until the first picture, time runs 20 times as fast) */
 #include <libgen.h>
 #include <limits.h>
 #ifndef __EMSCRIPTEN__

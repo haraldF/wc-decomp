@@ -183,7 +183,9 @@ between the two, so the emulation itself never includes SDL.
 Wing Commander paces its animation and space flight by CPU speed, so the runtime limits it to
 8334 instructions per millisecond. Cmd+Up/Down in the window change that by 20% (the title shows
 the value); `WC_CYCLES=n` sets it at start (instructions per ms, like DOSBox's `cycles`), and
-`WC_CYCLES=max` runs as fast as possible. In space flight the game draws more per frame when
+`WC_CYCLES=max` runs as fast as possible. Until the intro's first picture the game mostly waits
+(it shows its loading messages for a few seconds), so there emulated time runs 20 times as fast and
+the intro starts after about half a second (`WC_WARP=0` turns that off; a key or click ends it). In space flight the game draws more per frame when
 enemies are close, so there the runtime paces frames instead: 15 per second (`WC_FPS`), running
 at full speed in between; in flight Cmd+Up/Down change the frame rate instead, by 20% too, and
 leave the instruction rate alone. `WC_STATS=1` prints the frame rate.

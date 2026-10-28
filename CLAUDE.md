@@ -217,6 +217,13 @@ x86 real-mode modelling bugs the scripts work around:
   13-42 fps (frames up to 119 ms, enemies close = more drawing); paced it holds 25-26 fps, longest
   ~45 ms. The game advances per frame (unpaced, the scripted pilot dies within a second).
   `WC_STATS=1` prints frames/s. Flight never waits for the retrace (no 3DAh reads).
+- Quick start (pc.c, `WC_WARP=0` off): until the first visible frame (vga_poll) or the first key or
+  mouse button from the host, emulated time runs 20x (pc_now_ns adds 19x the real time spent
+  warping, so the clock stays continuous) and instructions aren't limited; opl_poll makes no
+  samples meanwhile. Before the intro the game mostly waits: after "... music will play." it shows
+  the text until a timer runs out or a key is pressed (ovl28_0151). The first picture came after
+  5.2 s at 8334 cycles (3.3 s even at max: the waits are timed); now ~0.6 s. WC_KEYS ticks are
+  emulated timer interrupts, so the scripts below are unaffected.
 - At limited speed, key timings in menus are unreliable; click with the scripted mouse:
   `WC_MOUSE=1 WC_KEYS=1000:esc,1100:esc,1300:@160.55,1350:+lmb,1356:-lmb,1500:@160.55,1550:+lmb,1556:-lmb`
   reaches the simulator at the default speed.
@@ -334,4 +341,4 @@ tied to its mixer).
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in
   `ghidra_scripts/`. C11 runtime in `runtime/`, tab-indented, short comments.
 - Debug env vars: `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
-  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`. Ctrl-C prints a report.
+  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`. Ctrl-C prints a report.

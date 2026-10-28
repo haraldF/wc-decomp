@@ -7,6 +7,8 @@
 #include "wc_rt.h"
 
 uint64_t pc_now_ns(void);
+int pc_warping(void);
+void pc_warp_end(void);
 
 /* ---- DAC: index at 3C8h (write) / 3C7h (read), then R, G, B (6 bits) at 3C9h ---- */
 
@@ -62,6 +64,15 @@ void vga_poll(uint64_t now)
 	memcpy(frame_palette, wc_palette, sizeof frame_palette);
 	frame_count++;
 	pthread_mutex_unlock(&frame_lock);
+	if (pc_warping()) { /* the quick start ends with the first visible picture */
+		for (int i = 0; i < 320 * 200; i++) {
+			const uint8_t *c = frame_palette + 3 * frame_pixels[i];
+			if (c[0] | c[1] | c[2]) {
+				pc_warp_end();
+				break;
+			}
+		}
+	}
 }
 
 uint64_t vga_frame(uint8_t pixels[320 * 200], uint8_t palette[256 * 3])

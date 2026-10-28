@@ -99,11 +99,46 @@ static void interrupt(uint8_t vec, uint32_t ret, uint32_t ret_code)
 
 /* ---- 8253 timer, channel 0 ---- */
 
-uint64_t pc_now_ns(void)
+/* Quick start: until the first picture (the intro's first frame), the game mostly waits (it shows
+ * its loading messages for a while), so emulated time runs WARP times as fast and instructions
+ * aren't limited. It ends at the first visible frame or the first key or mouse button (WC_WARP=0:
+ * off). The clock stays continuous: emulated time = real time + WARP - 1 times the real time spent
+ * warping. */
+enum { WARP = 20 };
+static uint64_t warp_start_ns;
+static _Atomic uint64_t warp_end_ns = 1; /* 0: warping; set when it ends (1: never started) */
+
+static uint64_t real_ns(void)
 {
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
+}
+
+uint64_t pc_now_ns(void)
+{
+	uint64_t now = real_ns(), end = atomic_load_explicit(&warp_end_ns, memory_order_acquire);
+	if (end == 1) return now;
+	return now + ((end ? end : now) - warp_start_ns) * (WARP - 1);
+}
+
+int pc_warping(void)
+{
+	return atomic_load_explicit(&warp_end_ns, memory_order_relaxed) == 0;
+}
+
+void pc_warp_end(void)
+{
+	uint64_t zero = 0;
+	atomic_compare_exchange_strong(&warp_end_ns, &zero, real_ns());
+}
+
+static void warp_start(void)
+{
+	const char *w = getenv("WC_WARP");
+	if (w && !strcmp(w, "0")) return;
+	warp_start_ns = real_ns();
+	atomic_store(&warp_end_ns, 0);
 }
 
 static uint32_t pit_divisor = 65536; /* 18.2 Hz */
@@ -248,6 +283,7 @@ static uint64_t key_down_ns[128];
 
 void pc_key(uint8_t scancode)
 {
+	if (!(scancode & 0x80)) pc_warp_end();
 	uint32_t tail = atomic_load_explicit(&host_keys_tail, memory_order_relaxed);
 	if (tail - atomic_load_explicit(&host_keys_head, memory_order_acquire) < sizeof host_keys) {
 		host_keys[tail % sizeof host_keys] = scancode;
@@ -378,6 +414,10 @@ static void throttle(void)
 {
 	uint64_t cycles = atomic_load_explicit(&cycles_per_ms, memory_order_relaxed);
 	if (!cycles) return;
+	if (pc_warping()) {
+		throttle_cycles = 0; /* measure afresh once it ends */
+		return;
+	}
 	uint64_t now = pc_now_ns();
 	if (pacing) {
 		uint64_t fps = atomic_load_explicit(&flight_fps, memory_order_relaxed);
@@ -710,6 +750,7 @@ void pc_init(int tty)
 	mwr(0x480, 2, KBUF_START);
 	mwr(0x482, 2, KBUF_END);
 	mwr(0x463, 2, 0x3d4);    /* CRT controller port (colour); +6 is the status register games poll */
+	warp_start();            /* before anything takes the time */
 	pic_mask = 0xb8;         /* timer, keyboard, cascade and COM enabled, like a booted PC */
 	pit_set(65536);
 	vga_init();
