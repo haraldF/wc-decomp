@@ -141,7 +141,11 @@ x86 real-mode modelling bugs the scripts work around:
   `entries.txt` and recompiles. Code loaded at runtime: exit 5, the 64 KB segment is captured
   and recompiled as a driver at virtual segment 6000, 7000, ... (`WcDriverEntries.java` seeds only
   observed entries; "Function Start Search" off so heap bytes aren't decoded). Drivers are
-  recognised at runtime by their instruction bytes; writes into them are reported.
+  recognised at runtime by their instruction bytes. A write into those bytes marks the driver
+  stale and prints a report (the first time; WC_DUMP saves the memory); the next call into its
+  segment checks the bytes again and drops the registration if they changed. It used to stay
+  registered for good, so code at that segment ran the old driver's recompiled code: WC2 hung.
+  `discover` refuses to recompile a "driver" without the zero word that starts every driver.
 - Discovery is timing-dependent; several rounds may be needed. Bugs elsewhere produce bogus
   entries (garbage addresses). `entries.txt` was cleaned by hand (removed: 13dfb, 3ec5e,
   3f5f6, 0007e, 4736f, 4aba0, 56af9, 4e2fe, 4bd1c, 4be19, 468c6, 60000); 82 entries remain.
@@ -408,7 +412,7 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 
 - GOG release (SHA-256 0eb4e54e...), `--game wc2`: folder `../game2`, output `out/wc2/`
   (`out/wc2/bin/wc2`), `entries-wc2.txt`. Borland C++ 2.0 (1991), VROOM overlays again but 124 of
-  them (796 entries); DGROUP 1976h (runtime DS = load seg + 1976h = 1B76h), entry 0000:0000.
+  them (796 entries); DGROUP 1976h (runtime DS = load seg + 1976h = 2376h), entry 0000:0000.
   Also in the folder: SO1.EXE/SO2.EXE (Special Operations), not done yet.
 - One overlay relocation word has bit 0 set (overlay 77, 05B1h): stub index 182 | 1 means the
   segment the overlay's own code is loaded at, not its stub (a far pointer to a callback in
@@ -448,6 +452,17 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   everything from `c` on goes 3600 ticks later (`c` at 13200, the cockpit by 21600; checked). The airlock (80,80) quits ("Leaving Wing Commander 2").
 - The game writes savegame.wc2, TEMPGLOB.000, MEM.$$$ and err.$$$ in GAMEDAT: test in a copy of
   the folder (`--exe copy/WC2.EXE`).
+- Loaded at segment 0A00h (32 KB higher than WC1, `loadSeg` in cli.ts), as GOG's DOSBox runs it
+  (`loadfix -32 wc2.exe`). SHIP.V18's header holds a stray far pointer, 3831:772E, which goes
+  into the ship type table (DS:14BC, 0F3h per type, sprite at +0EBh), then into an object's
+  sprite slot (DS:4A24), and is freed when the sprite changes (FUN_1bd7_259a). The game's free
+  (FUN_25ad_0add) releases the heap block containing the address; loaded at 0200h, linear 3FA3Eh
+  is in the first block, the menu graphics driver db000, so in a mission's cutscene the heap
+  handed its memory out (FileChunks) and calls into it hung or stopped. Loaded higher, the
+  address is below the heap and the free does nothing. The heap (FUN_25ad_*): all free
+  conventional memory, linear base/size at 344f:31c0/31c4, a table of 8-byte entries (linear
+  address, size, flags 8000h used, 4000h kept by the purge) from 344f:31c8 up to the end.
+  Pointers with segment C000h-FFFFh are the game's EMS heap (FUN_2537_*).
 - Saving checks for savegame.wc2 with DOS find first (AH=4Eh); when it reported nothing found
   (the runtime's old stub), every save created a new file of 9 blank slots (1672 bytes each, slot
   8 the current game) and wrote only its own slot, so earlier saves vanished. dos.c now implements
@@ -460,4 +475,5 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in
   `ghidra_scripts/`. C11 runtime in `runtime/`, tab-indented, short comments.
 - Debug env vars (`WC_KEYS` key names: esc, enter, space, tab, backspace, arrows, f1-f3, f10, alt, ctrl, characters): `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
-  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_ROLL_AXIS`, `WC_MT32`, `WC_MT32_MACHINE`, `WC_SB`. Ctrl-C prints a report.
+  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_ROLL_AXIS`, `WC_MT32`, `WC_MT32_MACHINE`, `WC_SB`, `WC_DUMP` (1 MB memory file at a `quit` key or the first
+  write into driver code; watch hits print the call stack). Ctrl-C prints a report.

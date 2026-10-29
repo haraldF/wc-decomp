@@ -68,13 +68,45 @@ static int is_program(uint32_t linear)
 
 /* ---- drivers loaded at runtime ---- */
 
-static struct { uint16_t seg; const struct wc_driver *d; } loaded[32];
+/* stale: its instruction bytes were written since (the game freed the driver and the heap reused
+ * the memory, or loaded another one there); checked again at the next call */
+static struct { uint16_t seg; uint8_t stale; const struct wc_driver *d; } loaded[32];
 static int nloaded;
+
+static int matches(uint16_t seg, const struct wc_driver *c)
+{
+	for (uint32_t r = 0; r < c->nranges; r++) {
+		if (memcmp(M + seg * 16 + c->ranges[r][0], c->image + c->ranges[r][0], c->ranges[r][1])) return 0;
+	}
+	return 1;
+}
+
+static void mark_code(uint16_t seg, const struct wc_driver *c, int on)
+{
+	for (uint32_t r = 0; r < c->nranges; r++) {
+		for (uint32_t k = 0; k < c->ranges[r][1]; k++) {
+			uint32_t a = (seg * 16 + c->ranges[r][0] + k) & 0xfffff;
+			if (on) wc_codemap[a >> 3] |= (uint8_t)(1 << (a & 7));
+			else wc_codemap[a >> 3] &= (uint8_t)~(1 << (a & 7));
+		}
+	}
+}
 
 static const struct wc_driver *registered(uint16_t seg)
 {
 	for (int i = 0; i < nloaded; i++) {
-		if (loaded[i].seg == seg) return loaded[i].d;
+		if (loaded[i].seg != seg) continue;
+		const struct wc_driver *d = loaded[i].d;
+		if (!loaded[i].stale) return d;
+		if (matches(seg, d)) {
+			loaded[i].stale = 0;
+			return d;
+		}
+		if (wc_trace) fprintf(stderr, "wc: driver %s at %04x is gone\n", d->name, seg);
+		mark_code(seg, d, 0);
+		loaded[i] = loaded[--nloaded];
+		for (int j = 0; j < nloaded; j++) mark_code(loaded[j].seg, loaded[j].d, 1); /* overlapping ones */
+		return NULL;
 	}
 	return NULL;
 }
@@ -87,35 +119,41 @@ static const struct wc_driver *driver_at(uint16_t seg)
 	if (d) return d;
 	for (uint32_t i = 0; i < wc_driver_count; i++) {
 		const struct wc_driver *c = wc_drivers[i];
-		uint32_t r = 0;
-		for (; r < c->nranges; r++) {
-			if (memcmp(M + seg * 16 + c->ranges[r][0], c->image + c->ranges[r][0], c->ranges[r][1])) break;
-		}
-		if (r < c->nranges || nloaded == 32) continue;
+		if (nloaded == 32 || !matches(seg, c)) continue;
 		loaded[nloaded].seg = seg;
+		loaded[nloaded].stale = 0;
 		loaded[nloaded++].d = c;
-		for (r = 0; r < c->nranges; r++) {
-			for (uint32_t k = 0; k < c->ranges[r][1]; k++) {
-				uint32_t a = seg * 16 + c->ranges[r][0] + k;
-				wc_codemap[a >> 3] |= (uint8_t)(1 << (a & 7));
-			}
-		}
+		mark_code(seg, c, 1);
 		if (wc_trace) fprintf(stderr, "wc: driver %s loaded at %04x\n", c->name, seg);
 		return c;
 	}
 	return NULL;
 }
 
+/* WC_DUMP=file: the whole memory (1 MB), for looking at the program's state afterwards */
+void wc_dump_memory(const char *why)
+{
+	const char *path = getenv("WC_DUMP");
+	FILE *f = path ? fopen(path, "wb") : NULL;
+	if (!f) return;
+	fwrite(M, 1, MEM_SIZE, f);
+	fclose(f);
+	fprintf(stderr, "wc: memory saved to %s (%s)\n", path, why);
+}
+
 void code_write(uint32_t addr)
 {
-	static int reported;
 	for (int i = 0; i < nloaded; i++) {
 		uint32_t base = loaded[i].seg * 16u;
-		if (addr - base < 0x10000 && reported < 20) {
-			reported++;
-			fprintf(stderr, "wc: self-modifying code: write to driver %s offset %04x by instruction %05x\n",
-				loaded[i].d->name, addr - base, wc_last_ins);
-			return;
+		if (addr - base < 0x10000 && !loaded[i].stale) {
+			static int reported;
+			loaded[i].stale = 1;
+			fprintf(stderr, "wc: write into driver %s's code at %04x:%04x by instruction %05x\n",
+				loaded[i].d->name, loaded[i].seg, addr - base, wc_last_ins);
+			if (!reported++) { /* the first time: where it came from */
+				cpu_report(stderr);
+				wc_dump_memory("a driver's code was overwritten");
+			}
 		}
 	}
 }
@@ -259,6 +297,15 @@ static void screenshot(void)
 	}
 }
 
+static void print_callers(FILE *f)
+{
+	fprintf(f, "  called from (innermost first, code addresses after each call):");
+	for (int i = wc_ret_depth - 1; i >= 0 && i >= wc_ret_depth - 8; i--) {
+		fprintf(f, " %05x", wc_ret_stack[i]);
+	}
+	fprintf(f, "\n");
+}
+
 void cpu_report(FILE *f)
 {
 	screenshot();
@@ -266,11 +313,7 @@ void cpu_report(FILE *f)
 	fprintf(f, "  %llu instructions executed, %llu writes to video memory\n", (unsigned long long)wc_icount,
 		(unsigned long long)wc_video_writes);
 	dump_regs(f);
-	fprintf(f, "  called from (innermost first, code addresses after each call):");
-	for (int i = wc_ret_depth - 1; i >= 0 && i >= wc_ret_depth - 8; i--) {
-		fprintf(f, " %05x", wc_ret_stack[i]);
-	}
-	fprintf(f, "\n");
+	print_callers(f);
 }
 
 _Noreturn void cpu_fail(const char *what, uint32_t at)
@@ -296,6 +339,7 @@ void watch_hit(uint32_t addr, int size, uint64_t value)
 {
 	fprintf(stderr, "wc: write %0*llx to %05x (watch %05x) by instruction %05x, CS=%04llx\n", size * 2,
 		(unsigned long long)value, addr, wc_watch, wc_last_ins, rd(R_CS, 2));
+	print_callers(stderr);
 }
 
 /* Writes at A000:0000 and above (video memory, BIOS); VGA output will hook in here. */

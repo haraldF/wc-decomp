@@ -28,6 +28,7 @@ uint64_t sb_in(uint64_t port);
 void sb_out(uint64_t port, uint64_t value);
 void sb_poll(uint64_t now);
 void sb_init(void);
+void wc_dump_memory(const char *why);
 void ems_init(void);
 uint8_t joystick_in(void);
 void joystick_out(void);
@@ -360,6 +361,7 @@ static void poll_keyboard(void)
 			fflush(stdout);
 			fprintf(stderr, "wc: quit by WC_KEYS at tick %llu\n", (unsigned long long)ticks);
 			cpu_report(stderr);
+			wc_dump_memory("quit by WC_KEYS");
 			host_exit(0);
 		}
 		if (how == 'm') {

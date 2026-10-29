@@ -6,9 +6,11 @@
  *   WC_TRACE=1      trace DOS calls; 2 also every instruction; 3 also I/O ports
  *   WC_KEYS=tick:key,...  press keys after that many timer interrupts (else: keys typed in the terminal);
  *                   +key only presses, -key only releases
- *   WC_LOAD_SEG=hex load segment (default 0200, which leaves about as much memory as DOSBox)
+ *   WC_LOAD_SEG=hex load segment (default 0200, which leaves about as much memory as DOSBox; WC2 0A00,
+ *                   32 KB higher, as GOG's DOSBox loads it)
  *   WC_POKE=addr:byte,...  patch memory before starting (linear hex addresses), for experiments
- *   WC_WATCH=addr          report every write to that linear address (hex)
+ *   WC_WATCH=addr          report every write to that linear address (hex), with the callers
+ *   WC_DUMP=file    save the memory (1 MB) at a WC_KEYS quit or when a driver's code is overwritten
  *   WC_HEADLESS=1   no window (keys from the terminal or WC_KEYS)
  *   WC_MOUSE=1      report a mouse without a window (for WC_KEYS mouse entries)
  *   WC_MOUSE_SPEED=x  the mouse's speed in full screen (default 2; Cmd+Left/Right in the window)
@@ -170,7 +172,7 @@ int main(int argc, char **argv)
 	const char *trace = getenv("WC_TRACE");
 	wc_trace = trace ? atoi(trace) : 0;
 	const char *seg = getenv("WC_LOAD_SEG");
-	unsigned load_seg = seg ? (unsigned)strtoul(seg, NULL, 16) : 0x0200;
+	unsigned load_seg = seg ? (unsigned)strtoul(seg, NULL, 16) : wc_program.load_seg;
 	if (load_seg < 0x80 || load_seg > 0x6000) {
 		fprintf(stderr, "wc: WC_LOAD_SEG must be between 0080 and 6000\n");
 		return 1;
