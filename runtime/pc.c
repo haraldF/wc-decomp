@@ -226,6 +226,45 @@ static uint8_t scancode_for(char c)
 	return 0;
 }
 
+/* A key by its WC_KEYS name ("tab", "f1", "a", ...); 0 if there is none. */
+static uint8_t key_named(const char *n)
+{
+	for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
+		if (!strcmp(n, keys[i].name)) return keys[i].code;
+	}
+	return strlen(n) == 1 ? scancode_for(n[0]) : 0;
+}
+
+/* The keys a flight stick's buttons press, by the numbers printed on them (from 1): 3 Enter
+ * (missile), 4 Tab (afterburner); WC_STICK_KEYS=11:tab,4:none changes them. Buttons 1 and 2 are
+ * the joystick's own. */
+static uint8_t stick_keys[33] = { [3] = 0x1c, [4] = 0x0f };
+
+static void parse_stick_keys(const char *s)
+{
+	while (s && *s) {
+		char name[16];
+		int button, used = 0;
+		if (sscanf(s, "%d:%15[^,]%n", &button, name, &used) != 2 || button < 1 || button > 32) {
+			fprintf(stderr, "wc: bad WC_STICK_KEYS at \"%s\" (button:key,...)\n", s);
+			exit(1);
+		}
+		uint8_t code = strcmp(name, "none") ? key_named(name) : 0;
+		if (!code && strcmp(name, "none")) {
+			fprintf(stderr, "wc: unknown key \"%s\" in WC_STICK_KEYS\n", name);
+			exit(1);
+		}
+		stick_keys[button] = code;
+		s += used + (s[used] == ',');
+	}
+}
+
+/* The key button (from 0, as hosts count them) presses, 0 for none. */
+uint8_t pc_stick_key(unsigned button)
+{
+	return button + 1 < sizeof stick_keys ? stick_keys[button + 1] : 0;
+}
+
 static void press(uint8_t code)
 {
 	if (code) {
@@ -304,11 +343,7 @@ static void parse_script(const char *s)
 			s += used + (s[used] == ',');
 			continue;
 		}
-		uint8_t code = 0;
-		for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
-			if (!strcmp(n, keys[i].name)) code = keys[i].code;
-		}
-		if (!code && strlen(n) == 1) code = scancode_for(n[0]);
+		uint8_t code = key_named(n);
 		if (!code) {
 			fprintf(stderr, "wc: unknown key \"%s\" in WC_KEYS\n", name);
 			exit(1);
@@ -877,6 +912,7 @@ void pc_init(int tty)
 	if (fps) atomic_store(&flight_fps, strtoull(fps, NULL, 10));
 
 	parse_script(getenv("WC_KEYS"));
+	parse_stick_keys(getenv("WC_STICK_KEYS"));
 	if (tty && isatty(0) && !getenv("WC_KEYS")) {
 		struct termios raw;
 		tcgetattr(0, &kbd_saved);

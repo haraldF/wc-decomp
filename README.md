@@ -237,7 +237,9 @@ WC_MT32=roland-mt-32-roms out/bin/wc ../game
 Joystick: a joystick or game controller (SDL3; in the browser the Gamepad API) is the PC joystick at
 the game port (201h, `runtime/joystick.c`). Button 1 fires the guns, button 2 rolls while held (both
 together: a missile). A flight stick: X/Y steer, the trigger is button 1, the thumb button button 2,
-buttons 3 and 4 Enter (missile) and Tab (afterburner), the hat up/down +/- (speed), left/right `,`
+buttons 3 and 4 Enter (missile) and Tab (afterburner) (`WC_STICK_KEYS=11:tab,4:none` presses a key
+with any button, by the numbers printed on the stick; key names as in `WC_KEYS`; the page:
+`?WC_STICK_KEYS=...`), the hat up/down +/- (speed), left/right `,`
 and `.` (roll; repeated while held, natively only). Twisting the stick doesn't roll (too easily done
 while steering); `WC_ROLL_AXIS=2` (the page: `?twist=5` in Chrome, `2` elsewhere) turns it on. A gamepad: the
 left stick (or the d-pad's left/right) steers, A or the right trigger is button 1, B or the left

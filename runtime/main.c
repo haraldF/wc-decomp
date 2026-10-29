@@ -24,7 +24,9 @@
  *   WC_WARP=0       no quick start (until the first picture, time runs 20 times as fast)
  *   WC_CLOCK=x      instructions: emulated time from the instructions executed (default headless),
  *                   real: real time (default in the window)
- *   WC_JOYSTICK=0   no joystick (by default a centred one, moved by a game controller) */
+ *   WC_JOYSTICK=0   no joystick (by default a centred one, moved by a game controller)
+ *   WC_STICK_KEYS=b:key,...  keys a flight stick's buttons press (numbered as on the stick; default
+ *                   3:enter,4:tab; "none" for none), e.g. 11:tab for the afterburner */
 #include <libgen.h>
 #include <limits.h>
 #ifndef __EMSCRIPTEN__

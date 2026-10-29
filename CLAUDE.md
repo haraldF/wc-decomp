@@ -476,5 +476,5 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in
   `ghidra_scripts/`. C11 runtime in `runtime/`, tab-indented, short comments.
 - Debug env vars (`WC_KEYS` key names: esc, enter, space, tab, backspace, arrows, f1-f3, f10, alt, ctrl, characters): `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
-  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_ROLL_AXIS`, `WC_MT32`, `WC_MT32_MACHINE`, `WC_SB`, `WC_DUMP` (1 MB memory file at a `quit` key or the first
+  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_STICK_KEYS` (stick buttons to keys, pc.c), `WC_ROLL_AXIS`, `WC_MT32`, `WC_MT32_MACHINE`, `WC_SB`, `WC_DUMP` (1 MB memory file at a `quit` key or the first
   write into driver code; watch hits print the call stack). Ctrl-C prints a report.

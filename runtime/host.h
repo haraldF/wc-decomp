@@ -30,6 +30,7 @@ void pc_mouse_move(int dx, int dy, int buttons);
  * likewise (a flight stick's twist, -1000 to the left), which the PC joystick doesn't have: it sets
  * the roll rate in flight; buttons: 1 and 2 the joystick's buttons. */
 void pc_joystick(int x, int y, int roll, int buttons);
+uint8_t pc_stick_key(unsigned button); /* the key a flight stick's button (from 0) presses, 0: none */
 /* Provided by the host: the program ends with this code (DOS exit, or an error), on the emulation's
  * thread. */
 _Noreturn void host_exit(int code);

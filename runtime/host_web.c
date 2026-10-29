@@ -64,6 +64,12 @@ EMSCRIPTEN_KEEPALIVE void web_joystick(int x, int y, int roll, int buttons)
 	pc_joystick(x, y, roll, buttons);
 }
 
+/* The key a flight stick's button (from 0) presses (WC_STICK_KEYS), 0 for none. */
+EMSCRIPTEN_KEEPALIVE int web_stick_key(int button)
+{
+	return button < 0 ? 0 : pc_stick_key((unsigned)button);
+}
+
 /* Instructions per ms (0: unlimited) and the frame rate in flight; change as for pc_cycles. */
 EMSCRIPTEN_KEEPALIVE double web_cycles(int change)
 {

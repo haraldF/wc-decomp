@@ -450,10 +450,11 @@ function run(wc, canvas, audio) {
   // A game controller (the Gamepad API, polled every frame) as the joystick. A gamepad (standard
   // mapping): the left stick or the d-pad's left/right, A or the right trigger button 1, B or the
   // left trigger button 2; X Enter = missile, RB Tab = afterburner, d-pad up/down +/- = speed,
-  // Start Esc. Any other joystick (a flight stick): axes 0 and 1, its buttons 1 and 2; 3 Enter, 4 Tab.
+  // Start Esc. Any other joystick (a flight stick): axes 0 and 1, its buttons 1 and 2; the others press
+  // keys (the runtime's table: 3 Enter, 4 Tab; ?WC_STICK_KEYS=11:tab changes it).
   // The right stick's x rolls; a flight stick's twist only with ?twist=axis (Chrome places a HID axis
   // by its usage: Rz, the twist, at 5; Firefox in order: X, Y, twist, throttle); it counts once centred.
-  const padKeys = { 2: 0x1c, 5: 0x0f, 12: 0x0d, 13: 0x0c, 9: 0x01 }, stickKeys = { 2: 0x1c, 3: 0x0f };
+  const padKeys = { 2: 0x1c, 5: 0x0f, 12: 0x0d, 13: 0x0c, 9: 0x01 };
   const padHeld = new Set();
   let padState = "";
   const deadZone = (v, zone = 0.1) => (Math.abs(v) < zone ? 0 : Math.round(((v - Math.sign(v) * zone) / (1 - zone)) * 1000));
@@ -464,7 +465,9 @@ function run(wc, canvas, audio) {
     const pad = pads.find((p) => p.mapping === "standard") ?? pads[0];
     const standard = pad?.mapping === "standard";
     const pressed = (i) => !!pad?.buttons[i]?.pressed;
-    for (const [i, sc] of Object.entries(standard ? padKeys : stickKeys)) {
+    const keys = standard ? padKeys
+      : Object.fromEntries((pad?.buttons ?? []).map((_, i) => [i, wc._web_stick_key(i)]).filter(([, sc]) => sc));
+    for (const [i, sc] of Object.entries(keys)) {
       if (pressed(i) && !padHeld.has(i)) { padHeld.add(i); wc._web_key(sc); }
       else if (!pressed(i) && padHeld.has(i)) { padHeld.delete(i); wc._web_key(sc | 0x80); }
     }

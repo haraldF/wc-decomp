@@ -283,13 +283,13 @@ static void gamepad(const SDL_Event *e)
 }
 
 /* A joystick that isn't a gamepad (a flight stick): X and Y steer, the trigger (button 1) and the
- * thumb button (2) are the joystick's; buttons 3 and 4 are Enter and Tab, the hat up/down + and -,
+ * thumb button (2) are the joystick's; other buttons press keys (pc_stick_key: 3 Enter, 4 Tab,
+ * WC_STICK_KEYS), the hat up/down + and -,
  * left/right , and . (roll), which repeat while held like keys: the game rolls faster with each.
  * The twist doesn't roll: twisting while steering rolled too much. WC_ROLL_AXIS=n rolls with axis n
  * (flight sticks order their axes X, Y, twist (Rz), throttle: 2). A wider dead zone keeps steering
  * from rolling; and the axis counts only once it has been centred, so a throttle there doesn't roll
  * forever. */
-static const uint8_t stick_keys[] = { 0, 0, 0x1c, 0x0f };
 static int roll_axis = -2;    /* -2: not read yet */
 static bool roll_centred;
 static uint8_t hat;          /* the hat's last position */
@@ -334,9 +334,9 @@ static void joystick(const SDL_Event *e)
 		pc_joystick(0, 0, 0, 0);
 		return;
 	}
-	if ((e->type == SDL_EVENT_JOYSTICK_BUTTON_DOWN || e->type == SDL_EVENT_JOYSTICK_BUTTON_UP) &&
-		e->jbutton.button < sizeof stick_keys && stick_keys[e->jbutton.button]) {
-		pc_key(stick_keys[e->jbutton.button] | (e->jbutton.down ? 0 : 0x80));
+	if (e->type == SDL_EVENT_JOYSTICK_BUTTON_DOWN || e->type == SDL_EVENT_JOYSTICK_BUTTON_UP) {
+		uint8_t key = pc_stick_key(e->jbutton.button);
+		if (key) pc_key(key | (e->jbutton.down ? 0 : 0x80));
 	}
 	if (e->type == SDL_EVENT_JOYSTICK_HAT_MOTION && e->jhat.hat == 0) {
 		uint8_t now = e->jhat.value;
