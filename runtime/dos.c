@@ -1,11 +1,13 @@
 /* Software interrupts: a small DOS (INT 21h) on top of the host file system, plus BIOS stubs.
  * Anything not implemented stops the program with the function number, so the next piece of
  * work is obvious. */
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -200,6 +202,77 @@ void bios_key_flush(void);
 
 /* Console input: the character of the next key; for keys without one (arrows, F1, ...) 0 first,
  * then the scancode on the next call. */
+/* ---- find first/next: 8.3 names in one folder, matched like DOS against an 11-character pattern ---- */
+
+static char find_dir[1024];
+
+/* "SAVEGAME.WC2", "*.*" -> "SAVEGAMEWC2", "???????????" (upper case, '?' matches anything) */
+static void to_fcb(const char *name, char fcb[11])
+{
+	memset(fcb, ' ', 11);
+	for (int field = 0, i = 0; *name; name++) {
+		if (*name == '.') {
+			if (field) return;
+			field = 1;
+			i = 8;
+			continue;
+		}
+		if (i >= (field ? 11 : 8)) continue;
+		if (*name == '*') {
+			while (i < (field ? 11 : 8)) fcb[i++] = '?';
+			continue;
+		}
+		fcb[i++] = (char)toupper((unsigned char)*name);
+	}
+}
+
+static int fcb_match(const char *pattern, const char *fcb)
+{
+	for (int i = 0; i < 11; i++) {
+		if (pattern[i] != '?' && pattern[i] != fcb[i]) return 0;
+	}
+	return 1;
+}
+
+/* Fills the DTA with the next match from the index kept there (CF and error 12h when there is none). */
+static void find_next(void)
+{
+	char pattern[11];
+	memcpy(pattern, M + dta + 1, 11);
+	uint8_t attr = M[dta];
+	uint32_t index = (uint32_t)mrd(dta + 12, 4);
+	DIR *d = opendir(find_dir);
+	struct dirent *e;
+	for (uint32_t n = 0; d && (e = readdir(d)); n++) {
+		if (n < index || e->d_name[0] == '.') continue;
+		const char *dot = strchr(e->d_name, '.');
+		size_t base = dot ? (size_t)(dot - e->d_name) : strlen(e->d_name);
+		if (base < 1 || base > 8 || (dot && (strlen(dot + 1) > 3 || strchr(dot + 1, '.')))) continue; /* not 8.3 */
+		char fcb[11];
+		to_fcb(e->d_name, fcb);
+		char path[1200];
+		struct stat st;
+		snprintf(path, sizeof path, "%s/%s", find_dir, e->d_name);
+		if (!fcb_match(pattern, fcb) || stat(path, &st) < 0) continue;
+		if (S_ISDIR(st.st_mode) && !(attr & 0x10)) continue;
+		struct tm tm;
+		localtime_r(&st.st_mtime, &tm);
+		M[dta + 0x15] = S_ISDIR(st.st_mode) ? 0x10 : 0x20;
+		mwr(dta + 0x16, 2, tm.tm_hour << 11 | tm.tm_min << 5 | tm.tm_sec / 2);
+		mwr(dta + 0x18, 2, (tm.tm_year - 80) << 9 | (tm.tm_mon + 1) << 5 | tm.tm_mday);
+		mwr(dta + 0x1a, 4, (uint32_t)st.st_size);
+		int i = 0;
+		for (const char *c = e->d_name; *c && i < 12; c++) M[dta + 0x1e + i++] = (uint8_t)toupper((unsigned char)*c);
+		M[dta + 0x1e + i] = 0;
+		mwr(dta + 12, 4, n + 1);
+		closedir(d);
+		ok();
+		return;
+	}
+	if (d) closedir(d);
+	fail_dos(0x12);
+}
+
 static int extended_scan = -1;
 
 static uint8_t console_char(uint32_t at)
@@ -468,8 +541,26 @@ static void dos(uint32_t at)
 			cpu_report(stderr);
 		}
 		host_exit((int)AL);
-	case 0x4e: /* find first: nothing found */
-		fail_dos(0x12);
+	case 0x4e: { /* find first: the search goes into the DTA's reserved bytes */
+		char dos[128];
+		get_string(DS, DX, dos, sizeof dos);
+		char *name = dos;
+		for (char *p = dos; *p; p++) {
+			if (*p == '\\' || *p == '/' || *p == ':') name = p + 1;
+		}
+		char fcb[11];
+		to_fcb(name, fcb);
+		*name = 0;
+		host_path(dos, find_dir, sizeof find_dir); /* one search folder at a time */
+		M[dta] = (uint8_t)CX;
+		memcpy(M + dta + 1, fcb, 11);
+		mwr(dta + 12, 4, 0);
+		find_next();
+		if (wc_trace) fprintf(stderr, "wc: find first \"%.11s\" in %s -> %s\n", fcb, find_dir, (rd(R_CF, 1) ? "nothing" : (char *)M + dta + 0x1e));
+		break;
+	}
+	case 0x4f: /* find next */
+		find_next();
 		break;
 	case 0x62: /* get PSP */
 		wr(R_BX, 2, wc_psp_seg);

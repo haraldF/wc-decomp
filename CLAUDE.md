@@ -448,6 +448,12 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   everything from `c` on goes 3600 ticks later (`c` at 13200, the cockpit by 21600; checked). The airlock (80,80) quits ("Leaving Wing Commander 2").
 - The game writes savegame.wc2, TEMPGLOB.000, MEM.$$$ and err.$$$ in GAMEDAT: test in a copy of
   the folder (`--exe copy/WC2.EXE`).
+- Saving checks for savegame.wc2 with DOS find first (AH=4Eh); when it reported nothing found
+  (the runtime's old stub), every save created a new file of 9 blank slots (1672 bytes each, slot
+  8 the current game) and wrote only its own slot, so earlier saves vanished. dos.c now implements
+  4Eh/4Fh (8.3 names, wildcards; the search in the DTA's reserved bytes, one folder at a time).
+  Saving by script: the console at 25,110 in the quarters ("Save/Load game"), a slot, S, the
+  slot (arrows, Enter), a comment, Enter (checked twice into slots 0 and 1, both kept).
 
 ## Conventions
 
