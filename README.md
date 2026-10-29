@@ -195,7 +195,7 @@ which runs at the VGA's 70 Hz in real time (port 3DAh). `runtime/host.h` is the 
 between the two, so the emulation itself never includes SDL.
 
 Wing Commander paces its animation and space flight by CPU speed, so the runtime limits it to
-8334 instructions per millisecond (Wing Commander II: 14400). Cmd+Up/Down in the window change that by 20% (the title shows
+8334 instructions per millisecond (Wing Commander II: 12000). Cmd+Up/Down in the window change that by 20% (the title shows
 the value); `WC_CYCLES=n` sets it at start (instructions per ms, like DOSBox's `cycles`), and
 `WC_CYCLES=max` runs as fast as possible. Until the intro's first picture the game mostly waits
 (it shows its loading messages for a few seconds), so there emulated time runs 20 times as fast and

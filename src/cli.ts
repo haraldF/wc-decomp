@@ -55,7 +55,7 @@ const GAMES: Record<string, Game> = {
     rates: 0x147b8 /* 13bb:0c08 */, roll: 0xc694, cycles: 8334 },
   // Wing Commander II: Vengeance of the Kilrathi (GOG), a new engine (Borland C++ 2.0)
   wc2: { exe: "WC2.EXE", dir: "../game2", sha256: "0eb4e54e97a29266b31ec73a149aa5f4a1a32e6b1a1aea74d287f0bfd890393f", out: "wc2",
-    entries: "entries-wc2.txt", rates: 0, roll: 0, cycles: 14400 /* 8334 felt sluggish */ },
+    entries: "entries-wc2.txt", rates: 0, roll: 0, cycles: 12000 /* 8334 felt sluggish, 14400 smoother, 12000 better */ },
 };
 const gameName = values.game!;
 const game = GAMES[gameName];

@@ -261,8 +261,9 @@ x86 real-mode modelling bugs the scripts work around:
   two Cmd+Down steps (~6950) suited it, so the default was 7000. Since flight is paced by frames
   (below), the intro decides: 10000 was a little too fast, one Cmd+Down step from there (8334,
   with 15 fps in flight) felt right, so those are the defaults.
-- The default is per program (`cycles` in cli.ts' GAMES, wc_program.cycles): WC2 at 14400, where
-  8334 felt sluggish and 14400 "a lot smoother".
+- The default is per program (`cycles` in cli.ts' GAMES, wc_program.cycles): WC2 at 12000, where
+  8334 felt sluggish, 14400 "a lot smoother", then 12000 better still. Headless, the instruction
+  clock runs at that speed too: tick timings depend on it (fewer instructions per tick at 12000).
 - In flight, frames are paced instead (pc_frame, `WC_FPS`, default 15; 25 and 21 felt too fast, "hectic", 18 was fine, 15 better in combat): the frame copy is entry 4
   (offset 7454) of the second graphics driver, d7000, recognised in `run()` by that address. Between
   two frame copies the game may run 3 frames' worth of instructions (3 x cycles x 1000/fps) at full
@@ -442,9 +443,9 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   `c` at 9600 (earlier is missed; a later Enter then picks "Transfer"), names typed letter by
   letter 40 ticks apart from 10200, 10600, 11000 (first, last name, callsign, each + Enter) reach
   the quarters by 11300. The middle door (`11900:@160.100,12000:+lmb`) is "Fly mission": the
-  flight deck scene, then the cockpit by 18000. These are without speech (`WC_SB=0`); with it the
-  dialogue takes longer: the database comes at ~12200, so everything from `c` on is 3200 ticks
-  later (`c` at 12800, the cockpit by 21200). The airlock (80,80) quits ("Leaving Wing Commander 2").
+  flight deck scene, then the cockpit by 18000. These were made at 14400 without speech
+  (`WC_SB=0`). With speech the dialogue takes longer: at 12000 the database comes at ~12400, and
+  everything from `c` on goes 3600 ticks later (`c` at 13200, the cockpit by 21600; checked). The airlock (80,80) quits ("Leaving Wing Commander 2").
 - The game writes savegame.wc2, TEMPGLOB.000, MEM.$$$ and err.$$$ in GAMEDAT: test in a copy of
   the folder (`--exe copy/WC2.EXE`).
 
