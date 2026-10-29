@@ -252,6 +252,8 @@ x86 real-mode modelling bugs the scripts work around:
   two Cmd+Down steps (~6950) suited it, so the default was 7000. Since flight is paced by frames
   (below), the intro decides: 10000 was a little too fast, one Cmd+Down step from there (8334,
   with 15 fps in flight) felt right, so those are the defaults.
+- The default is per program (`cycles` in cli.ts' GAMES, wc_program.cycles): WC2 at 14400, where
+  8334 felt sluggish and 14400 "a lot smoother".
 - In flight, frames are paced instead (pc_frame, `WC_FPS`, default 15; 25 and 21 felt too fast, "hectic", 18 was fine, 15 better in combat): the frame copy is entry 4
   (offset 7454) of the second graphics driver, d7000, recognised in `run()` by that address. Between
   two frame copies the game may run 3 frames' worth of instructions (3 x cycles x 1000/fps) at full

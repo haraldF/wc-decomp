@@ -13,7 +13,7 @@
  *   WC_MOUSE=1      report a mouse without a window (for WC_KEYS mouse entries)
  *   WC_MOUSE_SPEED=x  the mouse's speed in full screen (default 2; Cmd+Left/Right in the window)
  *   WC_WAV=file     record the sound (AdLib) to a WAV file
- *   WC_CYCLES=n     instructions per millisecond (default 8334; "max": unlimited; Cmd+Up/Down in the window)
+ *   WC_CYCLES=n     instructions per millisecond (default 8334, WC2 14400; "max": unlimited; Cmd+Up/Down in the window)
  *   WC_FPS=n        frames per second in space flight, where frames are paced instead (default 15; 0: off;
  *                   Cmd+Up/Down in flight)
  *   WC_STATS=1      print the frame rate in flight every second

@@ -35,6 +35,7 @@ struct wc_program {
 	uint16_t cs, ip, ss, sp;
 	uint32_t rates;
 	uint16_t roll;
+	uint32_t cycles; /* instructions per ms by default (WC_CYCLES) */
 };
 extern const struct wc_program wc_program;
 /* Called by the generated code before the instructions cli.ts names (wc_program.rates). */

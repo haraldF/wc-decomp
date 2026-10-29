@@ -417,7 +417,7 @@ static void deliver(uint32_t at);
  * In flight the game draws more or less per frame (enemies close by: more), so a fixed
  * instruction rate gives an uneven frame rate. There it runs at full speed and pc_frame() paces
  * the frames instead (flight_fps, WC_FPS; 0: no frame pacing). */
-static _Atomic uint64_t cycles_per_ms = 8334;
+static _Atomic uint64_t cycles_per_ms; /* the program's default (wc_program.cycles), set in pc_init */
 static _Atomic uint64_t flight_fps = 15;
 static uint64_t throttle_start_ns, throttle_start_icount, throttle_cycles;
 /* Frames are paced while the game copies frames to the screen; between two copies it may use up
@@ -821,6 +821,7 @@ void pc_init(int tty)
 	mt32_init(); /* before the AdLib: one of them has the sound */
 	opl_init();
 	ems_init();
+	atomic_store(&cycles_per_ms, wc_program.cycles);
 	const char *cycles = getenv("WC_CYCLES");
 	if (cycles) atomic_store(&cycles_per_ms, strcmp(cycles, "max") ? strtoull(cycles, NULL, 10) : 0);
 	const char *fps = getenv("WC_FPS");
