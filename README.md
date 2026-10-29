@@ -204,7 +204,10 @@ at full speed in between; in flight Cmd+Up/Down change the frame rate instead, b
 leave the instruction rate alone. `WC_STATS=1` prints the frame rate.
 
 `WC_HEADLESS=1` runs without a window (`npm run discover` does), taking keys from the terminal or
-`WC_KEYS`. `WC_SCREENSHOT=file` saves the VGA palette and frame buffer when the program stops (also
+`WC_KEYS` (`tick:key` entries, in timer interrupts; `tick:quit` ends the run). Headless, emulated
+time comes from the instructions executed (the speed's worth per ms, and the waits skipped), so a
+run goes as fast as the emulation can (Wing Commander II's intro to its first mission in ~5 s instead
+of ~5 minutes) and is the same every time; `WC_CLOCK=real` uses real time instead. `WC_SCREENSHOT=file` saves the VGA palette and frame buffer when the program stops (also
 on Ctrl-C or a timeout); `tools/screenshot.py file out.png` makes a PNG.
 
 Sound: AdLib music. The OPL2 at ports 388h/389h is emulated by

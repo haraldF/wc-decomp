@@ -19,6 +19,8 @@
  *   WC_STATS=1      print the frame rate in flight every second
  *   WC_EMS=0        no expanded memory (EMS, 8 MB by default, as in GOG's DOSBox)
  *   WC_WARP=0       no quick start (until the first picture, time runs 20 times as fast)
+ *   WC_CLOCK=x      instructions: emulated time from the instructions executed (default headless),
+ *                   real: real time (default in the window)
  *   WC_JOYSTICK=0   no joystick (by default a centred one, moved by a game controller) */
 #include <libgen.h>
 #include <limits.h>

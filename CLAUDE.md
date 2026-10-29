@@ -272,8 +272,15 @@ x86 real-mode modelling bugs the scripts work around:
 - At limited speed, key timings in menus are unreliable; click with the scripted mouse:
   `WC_MOUSE=1 WC_KEYS=1000:esc,1100:esc,1300:@160.55,1350:+lmb,1356:-lmb,1500:@160.55,1550:+lmb,1556:-lmb`
   reaches the simulator at the default speed.
-- The `WC_KEYS` sequences in this file were made at full speed: use them with `WC_CYCLES=max`
-  (`npm run discover` sets it unless WC_CYCLES is given).
+- Headless, the clock counts instructions (pc.c, `WC_CLOCK`; `real` for the old behaviour): emulated
+  time = instructions / speed (WC_CYCLES or the program's default; "max" means the default here) +
+  time skipped in waits (pc_frame's slot in flight, pc_wait), no throttle, no quick-start warp. Runs
+  are deterministic (same instruction count and picture every time) and fast: WC2's intro to the
+  cockpit in ~5 s instead of ~5 minutes. `WC_KEYS` entries are sorted by tick, and `tick:quit`
+  ends the run (report, WC_SCREENSHOT), so a screenshot at any tick takes seconds.
+- The WC1/SM2 `WC_KEYS` sequences in this file were made on the real clock at full speed
+  (`WC_CYCLES=max`): use `WC_CLOCK=real` with them, or re-time them (cheap now). In flight the
+  instruction clock charges heavy frames their instructions at the set speed, unlike real time.
 
 ## State
 
@@ -282,7 +289,7 @@ The SDL3 window shows it live, takes the keyboard and mouse, and plays AdLib or 
 music. Missing: Sound Blaster digital sound, text mode, the MT-32 in the browser. A joystick or game controller is the PC joystick.
 
 Wing Commander II (`WC2.EXE`, `--game wc2`, see below) runs through the intro, the menus, pilot
-creation and the quarters; flight not reached by script yet. `npm run play` is discover in the
+creation, the quarters and flight (first mission: no missing code in a scripted flight). `npm run play` is discover in the
 window (no time limit, normal speed, restarts after each recompile).
 
 The Secret Missions 2 (`SM2.EXE`) run too, built the same way with `--game sm2` (see below).
@@ -413,11 +420,13 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   configuration table at F000:E6F5, as DOSBox) and its INT 9 calls INT 15h AH=4Fh when hooked.
 - `wc2.cfg` is `v a904 c25 d1`: AdLib music, and Sound Blaster digital sound (c, d) that isn't
   emulated (no speech pack in GOG's folder either: "Speech Enabled" isn't printed).
-- Scripted (WC_CYCLES=max, WC_MOUSE=1, ~61 ticks/s): the main menu after ~1950 ticks; click "Start New Game"
+- Scripted (instruction clock, WC_MOUSE=1): the main menu by 2100 ticks; click "Start New Game"
   `2200:@160.135,2250:+lmb,2256:-lmb`; Esc at 2600 skips the Kilrathi scene to Tolwyn's office;
-  Space every 200 ticks (3000-6000) steps through the opening; the personnel database at ~8000:
-  `c` (create), names typed from ~8800 (first, last name, callsign: Enter after each, ~500
-  ticks apart) reach the quarters at ~13000. The airlock (80,80) quits ("Leaving Wing Commander 2").
+  Space every 200 ticks (3000-8000) steps through the opening; the personnel database by 9000,
+  `c` at 9600 (earlier is missed; a later Enter then picks "Transfer"), names typed letter by
+  letter 40 ticks apart from 10200, 10600, 11000 (first, last name, callsign, each + Enter) reach
+  the quarters by 11300. The middle door (`11900:@160.100,12000:+lmb`) is "Fly mission": the
+  flight deck scene, then the cockpit by 18000. The airlock (80,80) quits ("Leaving Wing Commander 2").
 - The game writes savegame.wc2, TEMPGLOB.000, MEM.$$$ and err.$$$ in GAMEDAT: test in a copy of
   the folder (`--exe copy/WC2.EXE`).
 

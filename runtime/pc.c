@@ -122,8 +122,16 @@ static uint64_t real_ns(void)
 	return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
 }
 
+/* Headless, emulated time comes from the instructions executed (WC_CLOCK=instructions, the default
+ * with WC_HEADLESS; WC_CLOCK=real: real time): WC_CYCLES (or the program's default speed) of them
+ * per ms, plus the time skipped where the game waits (a frame's slot in flight, a key). Runs go as
+ * fast as the CPU emulation and the same every time, so WC_KEYS scripts land on the same frames. */
+static int clock_instructions;
+static uint64_t clock_rate, clock_skip_ns; /* instructions per ms; time skipped while waiting */
+
 uint64_t pc_now_ns(void)
 {
+	if (clock_instructions) return wc_icount * 1000000u / clock_rate + clock_skip_ns;
 	uint64_t now = real_ns(), end = atomic_load_explicit(&warp_end_ns, memory_order_acquire);
 	if (end == 1) return now;
 	return now + ((end ? end : now) - warp_start_ns) * (WARP - 1);
@@ -143,7 +151,7 @@ void pc_warp_end(void)
 static void warp_start(void)
 {
 	const char *w = getenv("WC_WARP");
-	if (w && !strcmp(w, "0")) return;
+	if ((w && !strcmp(w, "0")) || clock_instructions) return;
 	warp_start_ns = real_ns();
 	atomic_store(&warp_end_ns, 0);
 }
@@ -276,6 +284,12 @@ static void parse_script(const char *s)
 			s += used + (s[used] == ',');
 			continue;
 		}
+		if (!strcmp(n, "quit")) { /* end the run here (report, WC_SCREENSHOT) */
+			script[script_len].tick = t;
+			script[script_len++].how = 'q';
+			s += used + (s[used] == ',');
+			continue;
+		}
 		if (!strcmp(n, "lmb") || !strcmp(n, "rmb")) { /* mouse button: code 1 left, 2 right */
 			script[script_len].tick = t;
 			script[script_len].how = how ? how : 'c';
@@ -297,6 +311,14 @@ static void parse_script(const char *s)
 		script[script_len].how = how;
 		script[script_len++].code = code;
 		s += used + (s[used] == ',');
+	}
+	/* in time order, entries of the same tick as given (insertion sort: stable) */
+	for (int i = 1; i < script_len; i++) {
+		for (int j = i; j > 0 && script[j - 1].tick > script[j].tick; j--) {
+			__typeof__(script[0]) e = script[j];
+			script[j] = script[j - 1];
+			script[j - 1] = e;
+		}
 	}
 }
 
@@ -329,6 +351,12 @@ static void poll_keyboard(void)
 		uint8_t code = script[script_pos].code;
 		char how = script[script_pos].how;
 		int16_t mx = script[script_pos].mx, my = script[script_pos++].my;
+		if (how == 'q') {
+			fflush(stdout);
+			fprintf(stderr, "wc: quit by WC_KEYS at tick %llu\n", (unsigned long long)ticks);
+			cpu_report(stderr);
+			host_exit(0);
+		}
 		if (how == 'm') {
 			script_mx = mx;
 			script_my = my;
@@ -456,7 +484,7 @@ int pc_in_flight(void)
 static void throttle(void)
 {
 	uint64_t cycles = atomic_load_explicit(&cycles_per_ms, memory_order_relaxed);
-	if (!cycles) return;
+	if (!cycles || clock_instructions) return;
 	if (pc_warping()) {
 		throttle_cycles = 0; /* measure afresh once it ends */
 		return;
@@ -524,6 +552,12 @@ void pc_frame(uint32_t at)
 	atomic_store_explicit(&pacing_seen, 1, memory_order_relaxed);
 	next_frame_ns += period;
 	while ((now = pc_now_ns()) < next_frame_ns) {
+		if (clock_instructions) { /* skip to the frame's slot */
+			clock_skip_ns += next_frame_ns - now;
+			poll_devices();
+			deliver(at);
+			continue;
+		}
 		uint64_t wait = next_frame_ns - now;
 		struct timespec ts = { 0, (long)(wait < 1000000u ? wait : 1000000u) };
 		nanosleep(&ts, NULL);
@@ -538,7 +572,8 @@ static void pc_wait(uint32_t at)
 {
 	uint64_t saved_if = rd(R_IF, 1);
 	wr(R_IF, 1, 1);
-	usleep(1000);
+	if (clock_instructions) clock_skip_ns += 1000000u;
+	else usleep(1000);
 	poll_devices();
 	deliver(at);
 	wr(R_IF, 1, saved_if);
@@ -814,6 +849,9 @@ void pc_init(int tty)
 	 * clock and the keyboard intercept (INT 9 calls INT 15h AH=4Fh), as in DOSBox */
 	static const uint8_t config[] = { 8, 0, 0xfc, 0, 0, 0x70, 0, 0, 0, 0 };
 	memcpy(M + BIOS_SEG * 16 + BIOS_CONFIG, config, sizeof config);
+	const char *clock = getenv("WC_CLOCK"), *headless = getenv("WC_HEADLESS"), *rate = getenv("WC_CYCLES");
+	clock_instructions = clock ? !strcmp(clock, "instructions") : headless && *headless && strcmp(headless, "0");
+	clock_rate = rate && strcmp(rate, "max") && strtoull(rate, NULL, 10) ? strtoull(rate, NULL, 10) : wc_program.cycles;
 	warp_start();            /* before anything takes the time */
 	pic_mask = 0xb8;         /* timer, keyboard, cascade and COM enabled, like a booted PC */
 	pit_set(65536);
