@@ -28,12 +28,17 @@ extern int64_t wc_reloc;
 extern uint32_t wc_image_lo, wc_image_hi; /* runtime linear range of the image */
 
 /* The recompiled program (WC.EXE or SM2.EXE): its file name and start, from its EXE header
- * (wc_program.c, generated). */
+ * (wc_program.c, generated); in flight, the routine that turns the steering rates into turning
+ * speeds (code address) and the roll rate's DS offset. */
 struct wc_program {
 	const char *exe;
 	uint16_t cs, ip, ss, sp;
+	uint32_t rates;
+	uint16_t roll;
 };
 extern const struct wc_program wc_program;
+/* Called by the generated code before the instructions cli.ts names (wc_program.rates). */
+void wc_hook(uint32_t at);
 
 /* Code the program loads at runtime (drivers) is recompiled from images captured in memory, each
  * at its own virtual segment from DRIVER_VIRT_SEG on; it runs at whatever segment it was loaded. */

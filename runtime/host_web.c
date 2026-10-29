@@ -59,9 +59,9 @@ EMSCRIPTEN_KEEPALIVE void web_mouse_move(int dx, int dy, int buttons)
 	pc_mouse_move(dx, dy, buttons);
 }
 
-EMSCRIPTEN_KEEPALIVE void web_joystick(int x, int y, int buttons)
+EMSCRIPTEN_KEEPALIVE void web_joystick(int x, int y, int roll, int buttons)
 {
-	pc_joystick(x, y, buttons);
+	pc_joystick(x, y, roll, buttons);
 }
 
 /* Instructions per ms (0: unlimited) and the frame rate in flight; change as for pc_cycles. */

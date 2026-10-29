@@ -146,6 +146,13 @@ void pc_frame(uint32_t at);
  * driver d7000 (drivers.txt fixes which driver gets which virtual segment). */
 enum { FRAME_COPY = 0x77454 };
 
+void joystick_roll(uint16_t var);
+
+void wc_hook(uint32_t at)
+{
+	if (at == wc_program.rates) joystick_roll(wc_program.roll);
+}
+
 void run(uint32_t linear)
 {
 	if (bios_entry(linear)) {

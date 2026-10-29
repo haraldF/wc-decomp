@@ -223,10 +223,11 @@ static void press(uint8_t code)
  * A key is a character or a name (esc, enter, space, up, ...); it is pressed and released at
  * once, or only pressed with a + in front (+up) and only released with a - (-up). The mouse:
  * @x.y moves it (320x200), lmb/rmb click (+lmb/-lmb hold and release); with WC_MOUSE=1. The
- * joystick: %x.y moves the stick (-100..100 each, 0 centred), j1/j2 its buttons (+j1/-j1). */
+ * joystick: %x.y moves the stick (-100..100 each, 0 centred), %x.y.r twists it too (r likewise,
+ * the roll), j1/j2 its buttons (+j1/-j1). */
 enum { SCRIPT_MAX = 1024 };
 static struct { uint64_t tick; uint8_t code; char how; int16_t mx, my; } script[SCRIPT_MAX];
-static int script_mx = 160, script_my = 100, script_buttons, script_jx, script_jy, script_jbuttons;
+static int script_mx = 160, script_my = 100, script_buttons, script_jx, script_jy, script_jroll, script_jbuttons;
 static int script_len, script_pos;
 static uint64_t ticks, script_jrelease;
 static uint8_t script_held;          /* key pressed with + and not released yet */
@@ -248,7 +249,7 @@ static void parse_script(const char *s)
 		}
 		char how = 0, *n = name;
 		if ((*n == '+' || *n == '-') && n[1]) how = *n++;
-		int mx, my;
+		int mx, my, r = 0;
 		if (sscanf(n, "@%d.%d", &mx, &my) == 2) { /* mouse to x.y */
 			script[script_len].tick = t;
 			script[script_len].how = 'm';
@@ -257,9 +258,10 @@ static void parse_script(const char *s)
 			s += used + (s[used] == ',');
 			continue;
 		}
-		if (sscanf(n, "%%%d.%d", &mx, &my) == 2) { /* stick to x.y */
+		if (sscanf(n, "%%%d.%d.%d", &mx, &my, &r) >= 2) { /* stick to x.y, twisted by r */
 			script[script_len].tick = t;
 			script[script_len].how = 'j';
+			script[script_len].code = (uint8_t)(int8_t)r;
 			script[script_len].mx = (int16_t)mx;
 			script[script_len++].my = (int16_t)my;
 			s += used + (s[used] == ',');
@@ -334,11 +336,12 @@ static void poll_keyboard(void)
 		else if (how == 'j') {
 			script_jx = mx * 10;
 			script_jy = my * 10;
-			pc_joystick(script_jx, script_jy, script_jbuttons);
+			script_jroll = (int8_t)code * 10;
+			pc_joystick(script_jx, script_jy, script_jroll, script_jbuttons);
 		}
 		else if (mx == -2) { /* joystick button, held for a little while when clicked */
-			if (how != '-') pc_joystick(script_jx, script_jy, script_jbuttons |= code);
-			if (how == '-') pc_joystick(script_jx, script_jy, script_jbuttons &= ~code);
+			if (how != '-') pc_joystick(script_jx, script_jy, script_jroll, script_jbuttons |= code);
+			if (how == '-') pc_joystick(script_jx, script_jy, script_jroll, script_jbuttons &= ~code);
 			if (how == 'c') script_jrelease = ticks + 6;
 		}
 		else if (mx == -1) { /* mouse button: click, or + press / - release */
@@ -358,7 +361,7 @@ static void poll_keyboard(void)
 	}
 	if (script_jrelease && ticks >= script_jrelease) { /* a clicked joystick button goes up */
 		script_jrelease = 0;
-		pc_joystick(script_jx, script_jy, script_jbuttons = 0);
+		pc_joystick(script_jx, script_jy, script_jroll, script_jbuttons = 0);
 	}
 	if (script_held && pc_now_ns() >= script_repeat_ns) {
 		kbd_push(script_held);

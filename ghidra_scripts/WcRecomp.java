@@ -71,6 +71,9 @@ public class WcRecomp extends GhidraScript {
 	/** relocated values within the instruction being translated */
 	private Set<Long> relocValues = Set.of();
 
+	/** Instructions before which the runtime's wc_hook(address) runs (script argument 4: hex, commas). */
+	private final Set<Long> hooks = new HashSet<>();
+
 	/** Driver mode: the image's virtual segment, or -1 for the program itself. */
 	private int driverSeg = -1;
 	/** linear address -> length of each emitted instruction (driver mode: for the byte ranges) */
@@ -84,6 +87,11 @@ public class WcRecomp extends GhidraScript {
 			return;
 		}
 		JsonObject manifest = JsonParser.parseString(Files.readString(Path.of(args[0]))).getAsJsonObject();
+		if (args.length > 3) {
+			for (String h : args[3].split(",")) {
+				if (!h.isBlank()) hooks.add(Long.parseLong(h.trim(), 16));
+			}
+		}
 		Path out = Path.of(args[1]);
 		Files.createDirectories(out);
 		int load = loadSegment(manifest);
@@ -656,6 +664,9 @@ public class WcRecomp extends GhidraScript {
 		c.append("L_").append(Long.toHexString(at)).append(": TRACE_INS(0x").append(Long.toHexString(at))
 				.append("); /* ").append(ins.getAddress()).append(" ").append(ins.toString().replace("*/", "* /"))
 				.append(" */\n");
+		if (hooks.contains(at)) {
+			c.append("\twc_hook(0x").append(Long.toHexString(at)).append(");\n");
+		}
 
 		PcodeOp[] ops = ins.getPcode(false);
 		boolean relative = false;

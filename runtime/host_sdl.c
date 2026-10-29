@@ -232,7 +232,7 @@ static void mouse(const SDL_Event *e)
 }
 
 /* ---- game controllers and joysticks as joystick A: a gamepad's left stick (or d-pad) and two
- * buttons, a joystick's first two axes and buttons ---- */
+ * buttons, a joystick's first two axes and buttons; the right stick's x or the twist rolls ---- */
 
 /* The controller's buttons the joystick has: A or the right trigger fires (button 1), B or the
  * left trigger is button 2; a few others are keys. */
@@ -244,12 +244,12 @@ static const struct { SDL_GamepadButton button; uint8_t key; } pad_keys[] = {
 	{ SDL_GAMEPAD_BUTTON_START, 0x01 },          /* Esc */
 };
 
-static int dead_zone(int16_t raw)
+static int dead_zone(int16_t raw, int zone)
 {
 	int v = raw * 1000 / 32767;
 	/* a little dead zone against a stick that doesn't quite centre; the rest stretched to full range */
-	if (v > -100 && v < 100) return 0;
-	return v > 0 ? (v - 100) * 1000 / 900 : (v + 100) * 1000 / 900;
+	if (v > -zone && v < zone) return 0;
+	return v > 0 ? (v - zone) * 1000 / (1000 - zone) : (v + zone) * 1000 / (1000 - zone);
 }
 
 static void gamepad(const SDL_Event *e)
@@ -262,7 +262,7 @@ static void gamepad(const SDL_Event *e)
 	if (e->type == SDL_EVENT_GAMEPAD_REMOVED) {
 		SDL_Gamepad *g = SDL_GetGamepadFromID(e->gdevice.which);
 		if (g) SDL_CloseGamepad(g);
-		pc_joystick(0, 0, 0);
+		pc_joystick(0, 0, 0, 0);
 		return;
 	}
 	SDL_Gamepad *g = SDL_GetGamepadFromID(e->gdevice.which);
@@ -272,20 +272,25 @@ static void gamepad(const SDL_Event *e)
 			if (e->gbutton.button == pad_keys[i].button) pc_key(pad_keys[i].key | (e->gbutton.down ? 0 : 0x80));
 		}
 	}
-	int x = dead_zone(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX)), y = dead_zone(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY));
+	int x = dead_zone(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX), 100), y = dead_zone(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY), 100);
 	if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) x = -1000;
 	if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) x = 1000;
 	int buttons = (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_SOUTH) ||
 		SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000 ? 1 : 0) |
 		(SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_EAST) ||
 		SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000 ? 2 : 0);
-	pc_joystick(x, y, buttons);
+	pc_joystick(x, y, dead_zone(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHTX), 150), buttons);
 }
 
 /* A joystick that isn't a gamepad (a flight stick): X and Y steer, the trigger (button 1) and the
  * thumb button (2) are the joystick's; buttons 3 and 4 are Enter and Tab, the hat up/down + and -,
- * left/right , and . (roll), which repeat while held like keys: the game rolls faster with each. */
+ * left/right , and . (roll), which repeat while held like keys: the game rolls faster with each.
+ * Axis 2 is the twist (flight sticks order their axes X, Y, twist (Rz), throttle); WC_ROLL_AXIS
+ * names another, -1 none. A wider dead zone keeps steering from rolling; and the axis counts only
+ * once it has been centred, so a throttle there doesn't roll forever. */
 static const uint8_t stick_keys[] = { 0, 0, 0x1c, 0x0f };
+static int roll_axis = -2;    /* -2: not read yet */
+static bool roll_centred;
 static uint8_t hat;          /* the hat's last position */
 static uint8_t roll_key;     /* , or . held by the hat */
 static uint64_t roll_next_ns; /* when it repeats */
@@ -304,7 +309,16 @@ static void joystick(const SDL_Event *e)
 	if (SDL_IsGamepad(id)) return; /* its gamepad events count */
 	if (e->type == SDL_EVENT_JOYSTICK_ADDED) {
 		SDL_Joystick *j = SDL_OpenJoystick(id);
-		if (j) fprintf(stderr, "wc: joystick \"%s\"\n", SDL_GetJoystickName(j));
+		if (roll_axis == -2) {
+			const char *e = getenv("WC_ROLL_AXIS");
+			roll_axis = e ? atoi(e) : 2;
+		}
+		if (j) {
+			fprintf(stderr, "wc: joystick \"%s\" (%d axes", SDL_GetJoystickName(j), SDL_GetNumJoystickAxes(j));
+			if (roll_axis >= 0 && roll_axis < SDL_GetNumJoystickAxes(j)) fprintf(stderr, ", axis %d rolls", roll_axis);
+			fprintf(stderr, ")\n");
+		}
+		roll_centred = false;
 		return;
 	}
 	SDL_Joystick *j = SDL_GetJoystickFromID(id);
@@ -316,7 +330,7 @@ static void joystick(const SDL_Event *e)
 		if (hat & SDL_HAT_DOWN) pc_key(0x0c | 0x80);
 		if (roll_key) pc_key(roll_key | 0x80);
 		hat = roll_key = 0;
-		pc_joystick(0, 0, 0);
+		pc_joystick(0, 0, 0, 0);
 		return;
 	}
 	if ((e->type == SDL_EVENT_JOYSTICK_BUTTON_DOWN || e->type == SDL_EVENT_JOYSTICK_BUTTON_UP) &&
@@ -336,7 +350,13 @@ static void joystick(const SDL_Event *e)
 		}
 		hat = now;
 	}
-	pc_joystick(dead_zone(SDL_GetJoystickAxis(j, 0)), dead_zone(SDL_GetJoystickAxis(j, 1)),
+	int roll = 0;
+	if (roll_axis >= 0 && roll_axis < SDL_GetNumJoystickAxes(j)) {
+		roll = dead_zone(SDL_GetJoystickAxis(j, roll_axis), 150);
+		if (!roll) roll_centred = true;
+		if (!roll_centred) roll = 0;
+	}
+	pc_joystick(dead_zone(SDL_GetJoystickAxis(j, 0), 100), dead_zone(SDL_GetJoystickAxis(j, 1), 100), roll,
 		(SDL_GetJoystickButton(j, 0) ? 1 : 0) | (SDL_GetJoystickButton(j, 1) ? 2 : 0));
 }
 

@@ -79,6 +79,12 @@ captured driver images (`out/loaded/*.bin`), `image.bin`/`relocs.bin`, the Borla
   with every make code (held keys ramp up through the typematic repeats); joystick button 2 held
   turns the stick's x into the roll directly and its y into speed changes. The host repeats the
   hat's left/right as `,`/`.` every 70 ms.
+- Twist (a stick's axis 2, `WC_ROLL_AXIS`; a gamepad's right stick x; the page: axis 5 in Chrome,
+  2 otherwise): the PC joystick has no such axis, so the runtime writes the roll rate (1..9 either
+  way) itself. Each flight frame, FUN_13be_1567 reads the input (0d0d, which zeroes the rates when
+  idle, and whose joystick event cancels key roll) and then turns the rates into turning speeds
+  (13be:0c4e). WcRecomp emits `wc_hook(addr)` before the instructions cli.ts passes (the game's
+  `rates`), and the hook writes DS:`roll` there (SM2: 13bb:0c08, DS:C694). `WC_KEYS` `%x.y.r` twists.
 - There is no reachable joystick calibration: WC.EXE has the texts ("Center Your Joystick ...",
   "UPPER LEFT", "LOWER RIGHT", DS:2A8F) but no code refers to them; the game only takes the centre
   at startup (FUN_1943_0003).
@@ -380,4 +386,4 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in
   `ghidra_scripts/`. C11 runtime in `runtime/`, tab-indented, short comments.
 - Debug env vars (`WC_KEYS` key names: esc, enter, space, tab, backspace, arrows, f1-f3, f10, alt, ctrl, characters): `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
-  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_MT32`, `WC_MT32_MACHINE`. Ctrl-C prints a report.
+  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_ROLL_AXIS`, `WC_MT32`, `WC_MT32_MACHINE`. Ctrl-C prints a report.
