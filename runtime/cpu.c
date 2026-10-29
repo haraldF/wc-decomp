@@ -130,11 +130,23 @@ uint32_t code_addr(uint64_t linear)
 	return linear >= wc_image_lo && linear < wc_image_hi ? (uint32_t)(linear - wc_reloc * 16) : (uint32_t)linear;
 }
 
-uint32_t runtime_addr(uint32_t code)
+/* The driver whose virtual segment holds a code address, if any (WC2.EXE's image reaches past
+ * DRIVER_VIRT_SEG, so drivers are recompiled above it there). */
+static const struct wc_driver *driver_code(uint32_t code)
 {
 	if (code >= DRIVER_VIRT_SEG * 16u) {
-		uint32_t base = code & ~0xffffu; /* drivers sit at 64 KB-aligned virtual segments */
-		return (uint32_t)rd(R_CS, 2) * 16 + (code - base);
+		for (uint32_t i = 0; i < wc_driver_count; i++) {
+			if (code - wc_drivers[i]->virt < 0x10000) return wc_drivers[i];
+		}
+	}
+	return NULL;
+}
+
+uint32_t runtime_addr(uint32_t code)
+{
+	const struct wc_driver *d = driver_code(code);
+	if (d) {
+		return (uint32_t)rd(R_CS, 2) * 16 + (code - d->virt);
 	}
 	uint32_t lo = wc_image_lo - (uint32_t)(wc_reloc * 16), hi = wc_image_hi - (uint32_t)(wc_reloc * 16);
 	return code >= lo && code < hi ? (uint32_t)(code + wc_reloc * 16) : code;
@@ -201,16 +213,12 @@ static int find_in(const uint32_t *addr, uint32_t count, uint32_t code)
 
 void run_code(uint32_t code)
 {
-	if (code >= DRIVER_VIRT_SEG * 16u) {
-		for (uint32_t i = 0; i < wc_driver_count; i++) {
-			const struct wc_driver *d = wc_drivers[i];
-			if (code - d->virt < 0x10000) {
-				int k = find_in(d->addr, d->count, code);
-				if (k >= 0) {
-					d->func[k](code);
-					return;
-				}
-			}
+	const struct wc_driver *d = driver_code(code);
+	if (d) {
+		int k = find_in(d->addr, d->count, code);
+		if (k >= 0) {
+			d->func[k](code);
+			return;
 		}
 	}
 	else {

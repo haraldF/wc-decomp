@@ -40,6 +40,19 @@ npm run decompile -- --game sm2 && npm run recomp -- --game sm2 && npm run disco
 out/sm2/bin/sm2 ../game
 ```
 
+Wing Commander II (GOG's, `WC2.EXE`, SHA-256
+`0eb4e54e97a29266b31ec73a149aa5f4a1a32e6b1a1aea74d287f0bfd890393f`, in `../game2`) works the same
+way with `-- --game wc2` (into `out/wc2/`, entry points in `entries-wc2.txt`). Its code reached only
+through pointers is still being found: `npm run play` runs the game in its window and, when it
+reaches such code (or a driver it hasn't seen), adds it, recompiles and starts the game again:
+
+```bash
+npm run decompile -- --game wc2 && npm run recomp -- --game wc2
+npm run play -- --game wc2      # or out/wc2/bin/wc2 ../game2
+```
+
+Its Sound Blaster sound effects aren't emulated yet; the music (AdLib) is.
+
 After its intro, `SM2.EXE` asks a copy-protection question on a black screen ("Enter 5:"): in GOG's
 release the question isn't shown and any answer is accepted, so type anything and press Enter.
 

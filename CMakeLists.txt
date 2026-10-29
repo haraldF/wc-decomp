@@ -15,7 +15,7 @@ endif()
 
 set(WC_RECOMP_DIR "${CMAKE_SOURCE_DIR}/out/recomp" CACHE PATH "The generated C (npm run recomp)")
 set(WC_BIN_DIR "${CMAKE_SOURCE_DIR}/out/bin" CACHE PATH "Where wc goes, next to image.bin and relocs.bin")
-set(WC_NAME "wc" CACHE STRING "The executable's name: wc, or sm2 for the Secret Missions 2")
+set(WC_NAME "wc" CACHE STRING "The executable's name: wc, sm2 for the Secret Missions 2, or wc2 for Wing Commander II")
 
 if(EMSCRIPTEN)
   # The emulation runs on a pthread: shared memory, so the whole program is built for it

@@ -8,3 +8,6 @@ d8000 051b67dd566d6d31  AdLib music
 d6000 38a631a411885c1b  the same, as SM2.EXE loads it (it writes other values into the header)
 d7000 76a5961b3a2988e6  the same, as SM2.EXE loads it
 d9000 67ff9ee61450a81e  Roland MT-32 music (MPU-401)
+d7000 b32dc26934afea98  the same, as WC2.EXE loads it (same code, other header values)
+da000 13e9b9bd99d1a695  WC2.EXE: AdLib music
+db000 88ebf682939f969b  WC2.EXE: graphics (menus, rooms)

@@ -56,12 +56,15 @@ export function flatten(file: Buffer, source: string): { exe: Buffer; manifest: 
     ovl.code.copy(image, seg * 16);
     for (const off of ovl.relocs) {
       const p = seg * 16 + off;
-      const tableOffset = image.readUInt16LE(p);
-      const target = vroom.segments[tableOffset / 8];
-      if (tableOffset % 8 !== 0 || !target) {
-        throw new Error(`overlay ${ovl.index} relocation at ${hex(off)} has bad segment table offset ${hex(tableOffset)}`);
+      // Bit 0 set on a stub's offset: the segment the overlay's own code is loaded at, not its stub
+      // (WC2.EXE has one, a far pointer to a callback in the overlay itself).
+      const word = image.readUInt16LE(p);
+      const target = vroom.segments[word >> 3];
+      const loaded = (word & 7) === 1 && target?.kind === "stub" ? placed.find((q) => q.ovl.stubSeg === target.seg) : undefined;
+      if (!target || ((word & 7) !== 0 && !loaded)) {
+        throw new Error(`overlay ${ovl.index} relocation at ${hex(off)} has bad segment table offset ${hex(word)}`);
       }
-      image.writeUInt16LE(target.seg, p);
+      image.writeUInt16LE(loaded ? loaded.seg : target.seg, p);
       relocs.push({ seg, off });
     }
     ovl.entries.forEach((target, i) => {

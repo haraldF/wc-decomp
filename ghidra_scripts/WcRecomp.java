@@ -569,7 +569,8 @@ public class WcRecomp extends GhidraScript {
 	/**
 	 * Borland's switch for scattered case values: "mov cx,N; mov bx,table; L: mov ax,cs:[bx];
 	 * cmp ax,value (or directly cmp cs:[bx],ax); jz found; inc bx; inc bx; loop L; jmp default; found: jmp cs:[bx+2N]" with N
-	 * values and then N targets in the code segment.
+	 * values and then N targets in the code segment. A switch on a long compares N low words, then
+	 * N high words (cs:[bx+2N]), and jumps through cs:[bx+4N].
 	 */
 	private List<Long> sparseSwitchTargets(Instruction ins, byte[] b) throws Exception {
 		List<Long> targets = new ArrayList<>();
@@ -592,7 +593,7 @@ public class WcRecomp extends GhidraScript {
 					(op == 0x8b || op == 0x39 || op == 0x3b) && (p[i + 8] & 0xff) == 0x07) {
 				int n = (p[i + 1] & 0xff) | (p[i + 2] & 0xff) << 8;
 				int table = (p[i + 4] & 0xff) | (p[i + 5] & 0xff) << 8;
-				if (disp != 2 * n || n > 256) {
+				if ((disp != 2 * n && disp != 4 * n) || n > 256) {
 					return targets;
 				}
 				long cs = driverSeg >= 0 ? driverSeg * 16L : realSegment(ins) * 16L;

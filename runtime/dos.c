@@ -511,6 +511,21 @@ void dos_int(uint64_t n, uint32_t at)
 	case 0x12: /* conventional memory in KB */
 		wr(R_AX, 2, 640);
 		return;
+	case 0x15: /* system services: the configuration (pc.c), the keyboard intercept (the key goes on) */
+		if (AH == 0xc0) {
+			wr(R_ES, 2, 0xf000);
+			wr(R_BX, 2, 0xe6f5);
+			wr(R_AH, 1, 0);
+			wr(R_CF, 1, 0);
+		}
+		else if (AH == 0x4f) {
+			wr(R_CF, 1, 1);
+		}
+		else {
+			wr(R_AH, 1, 0x86); /* not supported */
+			wr(R_CF, 1, 1);
+		}
+		return;
 	case 0x16: { /* keyboard */
 		uint16_t key;
 		if (wc_trace) {

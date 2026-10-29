@@ -1,6 +1,7 @@
-// Usage: node src/cli.ts <command> [--game wc|sm2] [--exe file] [--borland dir] [--out dir]
+// Usage: node src/cli.ts <command> [--game wc|sm2|wc2] [--exe file] [--borland dir] [--out dir]
 //   --game       which program: wc (WC.EXE: Vega and Secret Missions 1, in out/, binary out/bin/wc) or
-//                sm2 (SM2.EXE: Secret Missions 2, in out/sm2/, binary out/sm2/bin/sm2)
+//                sm2 (SM2.EXE: Secret Missions 2, in out/sm2/, binary out/sm2/bin/sm2) or
+//                wc2 (WC2.EXE: Wing Commander II in ../game2, in out/wc2/, binary out/wc2/bin/wc2)
 //   flatten      write out/WC_FLAT.EXE (overlays folded in) and out/manifest.json
 //   fid          build out/borland-tc10.fidb, a Function ID database of the Borland Turbo C++ 1.0
 //                runtime, from CM.LIB, C0M.OBJ and OVERLAY.LIB in --borland (only once)
@@ -14,6 +15,8 @@
 //                add that entry point to entries.txt, recompile, repeat;
 //                when it calls code the game loaded at runtime (drivers), capture it to out/loaded/
 //                and recompile that too
+//   play         the same in the window, for playing: after each recompile the game starts again
+//                (arguments after "play" go to the game)
 
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -40,14 +43,18 @@ const { positionals, values } = parseArgs({
 // rates: the flight routine that turns the steering rates (-9..9) into turning speeds, as a code
 // address (image at 1000:0000), right after the input is read; roll: the roll rate's DS offset.
 // The runtime sets the roll rate there from a flight stick's twist.
-interface Game { exe: string; sha256: string; out: string; entries: string; rates: number; roll: number }
+// dir: the game folder (by default; --exe names another). rates 0: not found yet, no twist.
+interface Game { exe: string; dir: string; sha256: string; out: string; entries: string; rates: number; roll: number }
 const GAMES: Record<string, Game> = {
   // Wing Commander with the Secret Missions 1 (GOG)
-  wc: { exe: "WC.EXE", sha256: "c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca", out: "", entries: "entries.txt",
+  wc: { exe: "WC.EXE", dir: "../game", sha256: "c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca", out: "", entries: "entries.txt",
     rates: 0x1482e /* 13be:0c4e */, roll: 0xc3ae },
   // The Secret Missions 2: Crusade, a program of its own
-  sm2: { exe: "SM2.EXE", sha256: "900f379b04c7b6f11ae08cf84ca278b9260df8ed81d038cdb3907bbf136cd84d", out: "sm2", entries: "entries-sm2.txt",
+  sm2: { exe: "SM2.EXE", dir: "../game", sha256: "900f379b04c7b6f11ae08cf84ca278b9260df8ed81d038cdb3907bbf136cd84d", out: "sm2", entries: "entries-sm2.txt",
     rates: 0x147b8 /* 13bb:0c08 */, roll: 0xc694 },
+  // Wing Commander II: Vengeance of the Kilrathi (GOG), a new engine (Borland C++ 2.0)
+  wc2: { exe: "WC2.EXE", dir: "../game2", sha256: "0eb4e54e97a29266b31ec73a149aa5f4a1a32e6b1a1aea74d287f0bfd890393f", out: "wc2",
+    entries: "entries-wc2.txt", rates: 0, roll: 0 },
 };
 const gameName = values.game!;
 const game = GAMES[gameName];
@@ -55,7 +62,7 @@ if (!game) {
   console.error(`unknown --game ${gameName} (${Object.keys(GAMES).join(", ")})`);
   process.exit(2);
 }
-const exePath = path.resolve(values.exe ?? path.join(root, "../game", game.exe));
+const exePath = path.resolve(values.exe ?? path.join(root, game.dir, game.exe));
 
 const command = positionals[0];
 const baseOut = path.resolve(values.out);
@@ -115,7 +122,7 @@ const doRecomp = async (): Promise<void> => {
     projectDir, projectName,
     "-process", path.basename(flatExe), "-noanalysis", "-readOnly",
     "-scriptPath", scriptPath,
-    "-postScript", "WcRecomp.java", manifestPath, recompDir, entriesFile, game.rates.toString(16),
+    "-postScript", "WcRecomp.java", manifestPath, recompDir, entriesFile, game.rates ? game.rates.toString(16) : "",
   ]);
   const drivers = readDrivers();
   for (const d of drivers) {
@@ -237,12 +244,19 @@ async function main(): Promise<void> {
     case "web":
       await cmakeBuild(true);
       break;
-    case "discover": {
+    case "discover":
+    case "play": {
+      // play: in the window, without a time limit, at the normal speed; the game starts again after each recompile
+      const play = command === "play";
       mkdirSync(capturesDir, { recursive: true });
       for (let round = 1; round <= 50; round++) {
-        const res = spawnSync(wcExe, [gameDir], {
-          encoding: "utf8", timeout: Number(values.seconds) * 1000, env: { ...process.env, WC_LOADED_DIR: capturesDir, WC_HEADLESS: "1", WC_CYCLES: process.env.WC_CYCLES ?? "max" },
+        const env = play ? { ...process.env, WC_LOADED_DIR: capturesDir }
+          : { ...process.env, WC_LOADED_DIR: capturesDir, WC_HEADLESS: "1", WC_CYCLES: process.env.WC_CYCLES ?? "max" };
+        const res = spawnSync(wcExe, [gameDir, ...positionals.slice(1)], {
+          encoding: "utf8", timeout: play ? undefined : Number(values.seconds) * 1000, env,
+          stdio: ["inherit", play ? "inherit" : "pipe", "pipe"],
         });
+        if (play) process.stderr.write(res.stderr ?? "");
         const loaded = /wc: call into code loaded at runtime at ([0-9a-f]{4}):([0-9a-f]{4})/.exec(res.stderr ?? "");
         const capture = /wc: saved loaded code to (.+)/.exec(res.stderr ?? "")?.[1];
         if (res.status === 5 && loaded && capture) {
@@ -261,7 +275,10 @@ async function main(): Promise<void> {
           const ids = readDriverIds();
           let name = ids.find((i) => i.hash === hash)?.name;
           if (!name) {
-            let seg = 0x6000;
+            // above the program's code (image at 1000:0000): WC2.EXE's reaches past 6000:0000
+            const m = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest;
+            const end = 0x1000 + Math.max(...m.segments.map((s) => s.seg + Math.ceil(s.size / 16)));
+            let seg = Math.max(0x6000, Math.ceil(end / 0x1000) * 0x1000);
             while (ids.some((i) => i.name === `d${segHex(seg)}`)) seg += 0x1000;
             if (seg > 0xe000) throw new Error("too many drivers");
             name = `d${segHex(seg)}`;
@@ -279,6 +296,7 @@ async function main(): Promise<void> {
         }
         const missing = /wc: missing code at ([0-9a-f]+)/.exec(res.stderr ?? "")?.[1];
         if (res.status !== 4 || !missing) {
+          if (play) break;
           const timedOut = (res.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
           console.log(`round ${round}: ` + (timedOut ? `wc was still running after ${values.seconds} s, no missing code so far`
             : `wc stopped (exit ${res.status ?? res.signal}):`));
@@ -298,7 +316,7 @@ async function main(): Promise<void> {
       break;
     }
     default:
-      console.error("usage: node src/cli.ts <flatten|fid|decompile|redecompile|recomp|build|web|discover> [--game wc|sm2] [--exe file] [--borland dir] [--out dir]");
+      console.error("usage: node src/cli.ts <flatten|fid|decompile|redecompile|recomp|build|web|discover|play> [--game wc|sm2|wc2] [--exe file] [--borland dir] [--out dir]");
       process.exit(2);
   }
 }

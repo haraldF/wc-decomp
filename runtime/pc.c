@@ -42,6 +42,7 @@ void pc_report(FILE *f)
 }
 
 #define BIOS_SEG 0xf000u
+#define BIOS_CONFIG 0xe6f5u /* system configuration table (INT 15h AH=C0h), where AT BIOSes have it */
 
 /* ---- flags and the stack ---- */
 
@@ -669,9 +670,9 @@ enum { KBUF_HEAD = 0x41a, KBUF_TAIL = 0x41c, KBUF_START = 0x1e, KBUF_END = 0x3e,
 static const char key_lower[] = "\0\x1b" "1234567890-=" "\b\t" "qwertyuiop[]" "\r\0" "asdfghjkl;'`" "\0\\" "zxcvbnm,./" "\0*\0 ";
 static const char key_upper[] = "\0\x1b" "!@#$%^&*()_+" "\b\t" "QWERTYUIOP{}" "\r\0" "ASDFGHJKL:\"~" "\0|" "ZXCVBNM<>?" "\0*\0 ";
 
-static void bios_keyboard(void)
+static void bios_keyboard(uint8_t scan)
 {
-	uint8_t code = kbd_data & 0x7f, up = kbd_data & 0x80, flags = M[SHIFT_FLAGS];
+	uint8_t code = scan & 0x7f, up = scan & 0x80, flags = M[SHIFT_FLAGS];
 	uint8_t bit = code == 0x36 ? 0x01 : code == 0x2a ? 0x02 : code == 0x1d ? 0x04 : code == 0x38 ? 0x08 : 0;
 	if (bit) {
 		M[SHIFT_FLAGS] = up ? flags & ~bit : flags | bit;
@@ -743,10 +744,24 @@ static void bios(uint8_t n, uint32_t at)
 		eoi();
 		break;
 	}
-	case 0x09: /* keyboard: the scancode into the BIOS key buffer */
-		bios_keyboard();
+	case 0x09: { /* keyboard: the scancode into the BIOS key buffer, unless the keyboard intercept
+		* (INT 15h AH=4Fh, a hook may change AL) clears CF; WC2 reads keys that way */
+		uint8_t scan = kbd_data, keep = 1;
+		uint16_t seg = (uint16_t)mrd(0x15 * 4 + 2, 2), off = (uint16_t)mrd(0x15 * 4, 2);
+		if (!(seg == BIOS_SEG && off == 0x15)) {
+			uint16_t ax = (uint16_t)rd(R_AX, 2);
+			wr(R_AX, 2, 0x4f00 | scan);
+			wr(R_CF, 1, 1);
+			wr(R_CS, 2, BIOS_SEG);
+			interrupt(0x15, BIOS_SEG * 16 + 0x100, BIOS_SEG * 16 + 0x100);
+			scan = (uint8_t)rd(R_AL, 1);
+			keep = (uint8_t)rd(R_CF, 1);
+			wr(R_AX, 2, ax);
+		}
+		if (keep) bios_keyboard(scan);
 		eoi();
 		break;
+	}
 	case 0x1c: /* user timer hook: nothing */
 		break;
 	default:
@@ -795,6 +810,10 @@ void pc_init(int tty)
 	mwr(0x480, 2, KBUF_START);
 	mwr(0x482, 2, KBUF_END);
 	mwr(0x463, 2, 0x3d4);    /* CRT controller port (colour); +6 is the status register games poll */
+	/* the configuration INT 15h AH=C0h returns: 8 bytes, an AT (model FCh), with a second PIC, a
+	 * clock and the keyboard intercept (INT 9 calls INT 15h AH=4Fh), as in DOSBox */
+	static const uint8_t config[] = { 8, 0, 0xfc, 0, 0, 0x70, 0, 0, 0, 0 };
+	memcpy(M + BIOS_SEG * 16 + BIOS_CONFIG, config, sizeof config);
 	warp_start();            /* before anything takes the time */
 	pic_mask = 0xb8;         /* timer, keyboard, cascade and COM enabled, like a booted PC */
 	pit_set(65536);

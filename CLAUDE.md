@@ -279,6 +279,10 @@ The intro runs natively (~400–600 M instructions/s); a frame-buffer screenshot
 The SDL3 window shows it live, takes the keyboard and mouse, and plays AdLib or (WC_MT32) MT-32
 music. Missing: Sound Blaster digital sound, text mode, the MT-32 in the browser. A joystick or game controller is the PC joystick.
 
+Wing Commander II (`WC2.EXE`, `--game wc2`, see below) runs through the intro, the menus, pilot
+creation and the quarters; flight not reached by script yet. `npm run play` is discover in the
+window (no time limit, normal speed, restarts after each recompile).
+
 The Secret Missions 2 (`SM2.EXE`) run too, built the same way with `--game sm2` (see below).
 The same runs in the browser (`npm run web`, see below). Sound via Nuked-OPL3 (LGPL) on 388h/389h and libmt32emu (LGPL) behind an MPU-401 at 330h/331h —
 not DOSBox Staging's audio code (GPL, tied to its mixer).
@@ -380,6 +384,40 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   scratch copy of the game folder holding a save from the mission tool) found nothing missing
   through intro, protection, menus, simulator, rec room, barracks, briefing and a mission flown
   (autopilot key, no combat steering) back to the barracks.
+
+## Wing Commander II (WC2.EXE, ../game2)
+
+- GOG release (SHA-256 0eb4e54e...), `--game wc2`: folder `../game2`, output `out/wc2/`
+  (`out/wc2/bin/wc2`), `entries-wc2.txt`. Borland C++ 2.0 (1991), VROOM overlays again but 124 of
+  them (796 entries); DGROUP 1976h (runtime DS = load seg + 1976h = 1B76h), entry 0000:0000.
+  Also in the folder: SO1.EXE/SO2.EXE (Special Operations), not done yet.
+- One overlay relocation word has bit 0 set (overlay 77, 05B1h): stub index 182 | 1 means the
+  segment the overlay's own code is loaded at, not its stub (a far pointer to a callback in
+  itself). `flatten.ts` maps it to the overlay's flattened segment.
+- The flattened image ends at 6BAE0h, past DRIVER_VIRT_SEG (6000h): code there was taken for
+  driver code ("missing code" for a function that was recompiled). Drivers are now looked up by
+  their actual virtual segments (`driver_code()` in cpu.c), and `discover` gives new ones a
+  segment above the image.
+- Its drivers differ from WC1's except the flight graphics driver: same code as d7000 (only the
+  header words differ), so drivers.txt maps its hash to d7000 and FRAME_COPY applies. da000 is
+  the AdLib driver, db000 the menu/room graphics. WC1's d7000 entries were copied into
+  entries-wc2.txt (valid below 7565h, where the two captures start to differ).
+- Borland's switch on a long (`mov cx,N; mov bx,table; cmp cs:[bx] ...; cmp cs:[bx+2N] ...; jmp
+  cs:[bx+4N]`, four-character tags like "FORM") is read by `sparseSwitchTargets()` too.
+- Keyboard: the game asks INT 15h AH=C0h for the BIOS configuration. With feature bit 10h (INT 9
+  calls the keyboard intercept INT 15h AH=4Fh) it hooks INT 15h, records the key and chains on, so
+  the BIOS buffer still fills; otherwise it hooks INT 9 and swallows every key, and the pilot name
+  entry (Borland's kbhit/getch, DOS AH=0Bh/07h) never sees one. The runtime reports the bit (an AT
+  configuration table at F000:E6F5, as DOSBox) and its INT 9 calls INT 15h AH=4Fh when hooked.
+- `wc2.cfg` is `v a904 c25 d1`: AdLib music, and Sound Blaster digital sound (c, d) that isn't
+  emulated (no speech pack in GOG's folder either: "Speech Enabled" isn't printed).
+- Scripted (WC_CYCLES=max, WC_MOUSE=1, ~61 ticks/s): the main menu after ~1950 ticks; click "Start New Game"
+  `2200:@160.135,2250:+lmb,2256:-lmb`; Esc at 2600 skips the Kilrathi scene to Tolwyn's office;
+  Space every 200 ticks (3000-6000) steps through the opening; the personnel database at ~8000:
+  `c` (create), names typed from ~8800 (first, last name, callsign: Enter after each, ~500
+  ticks apart) reach the quarters at ~13000. The airlock (80,80) quits ("Leaving Wing Commander 2").
+- The game writes savegame.wc2, TEMPGLOB.000, MEM.$$$ and err.$$$ in GAMEDAT: test in a copy of
+  the folder (`--exe copy/WC2.EXE`).
 
 ## Conventions
 

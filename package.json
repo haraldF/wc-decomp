@@ -14,6 +14,7 @@
     "build": "node src/cli.ts build",
     "typecheck": "tsc --noEmit",
     "discover": "node src/cli.ts discover",
+    "play": "node src/cli.ts play",
     "mission": "node src/mission.ts",
     "web": "node src/cli.ts web",
     "serve": "node src/serve.ts"
