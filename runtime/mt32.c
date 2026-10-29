@@ -15,7 +15,7 @@
 uint64_t pc_now_ns(void);
 int pc_warping(void);
 int sound_open(unsigned rate);
-void sound_out(const int16_t *frames, unsigned count);
+void sound_out(int16_t *frames, unsigned count, uint64_t t0);
 
 /* the game was made for the first MT-32s; the CM-32L adds sound effects it may not use */
 static const char *const machines[] = {
@@ -48,7 +48,7 @@ void mt32_poll(uint64_t now)
 	while (frames_done < due) {
 		uint32_t n = due - frames_done > 512 ? 512 : (uint32_t)(due - frames_done);
 		mt32emu_render_bit16s(synth, buf, n);
-		if (out) sound_out(buf, n);
+		if (out) sound_out(buf, n, start_ns + frames_done * 1000000000u / rate);
 		frames_done += n;
 	}
 }

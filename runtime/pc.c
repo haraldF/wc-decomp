@@ -23,6 +23,11 @@ uint64_t mt32_in(uint64_t port);
 void mt32_out(uint64_t port, uint64_t value);
 void mt32_poll(uint64_t now);
 void mt32_init(void);
+int sb_port(uint64_t port);
+uint64_t sb_in(uint64_t port);
+void sb_out(uint64_t port, uint64_t value);
+void sb_poll(uint64_t now);
+void sb_init(void);
 void ems_init(void);
 uint8_t joystick_in(void);
 void joystick_out(void);
@@ -434,6 +439,7 @@ static void poll_devices(void)
 		vga_poll(now);
 		opl_poll(now);
 		mt32_poll(now);
+		sb_poll(now); /* after the sound up to now: a block's end raises its interrupt */
 	}
 }
 
@@ -640,6 +646,7 @@ uint64_t port_in(uint64_t port, int size)
 	case 0x3c7: case 0x3c8: case 0x3c9: case 0x3da: v = vga_in(port); break;
 	case 0x388: case 0x389: v = opl_in(port); break;
 	case 0x330: case 0x331: v = mt32_in(port); break;
+	default: if (sb_port(port)) v = sb_in(port); break;
 	}
 	if (wc_trace >= 3) fprintf(stderr, "wc: in  port %03llx -> %02llx\n", port, v);
 	(void)size;
@@ -660,6 +667,7 @@ void port_out(uint64_t port, uint64_t value, int size)
 	case 0x201: joystick_out(); break;
 	case 0x388: case 0x389: opl_out(port, value); break;
 	case 0x330: case 0x331: mt32_out(port, value); break;
+	default: if (sb_port(port)) sb_out(port, value); break;
 	case 0x43:
 		if ((value >> 6) == 0) { /* channel 0 */
 			if (((value >> 4) & 3) == 0) { /* counter latch */
@@ -858,6 +866,7 @@ void pc_init(int tty)
 	vga_init();
 	mt32_init(); /* before the AdLib: one of them has the sound */
 	opl_init();
+	sb_init();
 	ems_init();
 	atomic_store(&cycles_per_ms, wc_program.cycles);
 	const char *cycles = getenv("WC_CYCLES");

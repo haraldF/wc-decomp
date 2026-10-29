@@ -51,7 +51,8 @@ npm run decompile -- --game wc2 && npm run recomp -- --game wc2
 npm run play -- --game wc2      # or out/wc2/bin/wc2 ../game2
 ```
 
-Its Sound Blaster sound effects aren't emulated yet; the music (AdLib) is.
+Its music plays on the AdLib, and the speech (the cutscenes' dialogue and the wingmen's messages in
+flight; GOG's release includes the Speech Accessory Pack) on the emulated Sound Blaster.
 
 After its intro, `SM2.EXE` asks a copy-protection question on a black screen ("Enter 5:"): in GOG's
 release the question isn't shown and any answer is accepted, so type anything and press Enter.
@@ -216,6 +217,11 @@ Sound: AdLib music. The OPL2 at ports 388h/389h is emulated by
 real time and the window plays them through SDL3. `WC_WAV=file.wav` also records them (works
 headless too).
 
+Sound Blaster digital sound (`runtime/sb.c`, used by Wing Commander II for speech): the DSP at
+220h, IRQ 5, 8-bit DMA on channel 1 through an emulated 8237, as the original Sound Blaster
+(single-cycle, auto-initialize and direct output). Its samples are mixed into the AdLib's or the
+MT-32's output. `WC_SB=0` removes the card. Wing Commander I has no digital sound.
+
 Roland MT-32 (optional, natively): `WC_MT32=folder` emulates an MPU-401 (UART mode, ports
 330h/331h) with an MT-32 behind it, [munt](https://github.com/munt/munt)'s libmt32emu (LGPL 2.1+,
 a submodule too), and has the game play its Roland music (it adds the game's own `r` argument,
@@ -240,7 +246,7 @@ sticks without reporting them. The game finds the joystick only at startup, so t
 reports one, centred and still unless a controller moves it (one plugged in later works too;
 `WC_JOYSTICK=0`: none). `WC_KEYS` entries `%x.y` move it (-100..100 each), `j1`/`j2` press its buttons.
 
-Not supported yet: text-mode output, Sound Blaster digital sound, the MT-32 in the browser.
+Not supported yet: text-mode output, the MT-32 in the browser.
 
 ### Starting at any mission
 

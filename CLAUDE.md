@@ -215,7 +215,7 @@ x86 real-mode modelling bugs the scripts work around:
 - Screen recording isn't permitted for the agent here; to check the window's output, temporarily
   read it back with `SDL_RenderReadPixels` + `SDL_SaveBMP` before `SDL_RenderPresent`.
 
-## Sound (runtime/opl.c)
+## Sound (runtime/opl.c, mt32.c, sb.c)
 
 - AdLib: OPL2 at 388h (index; reading it gives the timer status) and 389h (data), emulated by
   Nuked-OPL3 (third_party/, submodule, LGPL 2.1) at its native 49716 Hz. Samples are made on the
@@ -239,6 +239,15 @@ x86 real-mode modelling bugs the scripts work around:
   sound.c has the output and WC_WAV. The intro's music starts after ~10 s, at 32 kHz, peaks near
   full scale (a few clipped samples, as munt makes it).
 - In the browser there is no MT-32 yet (the page would need the ROMs as files, apart from the game's).
+- Sound Blaster (runtime/sb.c, `WC_SB=0` off): DSP at 220h, IRQ 5, DMA 1 (fixed: what wc2.cfg's
+  `c25 d1` and GOG's DOSBox say), an 8237 for the 8-bit channels. Written from Creative's "Sound
+  Blaster Series Hardware Programming Guide" (not in the repository: its licence forbids copies).
+  A block plays in emulated time; its end advances the DMA channel and raises IRQ 5 in
+  `sb_poll`, which `poll_devices` calls after the sound up to now is made. `sound_out` gets each
+  block's emulated time and `sb_mix` adds the samples (linear interpolation, full scale +-16384) to
+  the AdLib's or MT-32's; DSP writes first make the sound up to that moment, like OPL writes.
+  `WC_TRACE=1` prints each block. WC1 and SM2 have no digital sound (no speech pack for WC1;
+  "Error loading pilot speech" is about the wingmen's comm texts).
 
 ## CPU speed
 
@@ -286,7 +295,7 @@ x86 real-mode modelling bugs the scripts work around:
 
 The intro runs natively (~400–600 M instructions/s); a frame-buffer screenshot shows the credits.
 The SDL3 window shows it live, takes the keyboard and mouse, and plays AdLib or (WC_MT32) MT-32
-music. Missing: Sound Blaster digital sound, text mode, the MT-32 in the browser. A joystick or game controller is the PC joystick.
+music, and WC2's speech on the Sound Blaster. Missing: text mode, the MT-32 in the browser. A joystick or game controller is the PC joystick.
 
 Wing Commander II (`WC2.EXE`, `--game wc2`, see below) runs through the intro, the menus, pilot
 creation, the quarters and flight (first mission: no missing code in a scripted flight). `npm run play` is discover in the
@@ -418,15 +427,23 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   the BIOS buffer still fills; otherwise it hooks INT 9 and swallows every key, and the pilot name
   entry (Borland's kbhit/getch, DOS AH=0Bh/07h) never sees one. The runtime reports the bit (an AT
   configuration table at F000:E6F5, as DOSBox) and its INT 9 calls INT 15h AH=4Fh when hooked.
-- `wc2.cfg` is `v a904 c25 d1`: AdLib music, and Sound Blaster digital sound (c, d) that isn't
-  emulated (no speech pack in GOG's folder either: "Speech Enabled" isn't printed).
+- `wc2.cfg` is `v a904 c25 d1`: AdLib music, Sound Blaster at 2x0h with x = 2, IRQ 5 (`c25`), DMA 1
+  (`d1`). GOG's folder has the Speech Accessory Pack (SPEECH.Snn for the cutscenes, COMMUNIC.Snn
+  for the wingmen in flight): "Speech Enabled." is printed when the card is found. Its Sound
+  Blaster code is in WC2.EXE (16cb), not a driver: reset/AAh, time constant A3h (10752 Hz), D1h,
+  single-cycle 14h blocks of 4000 bytes, double-buffered at 4BBD0h/4CB70h, DMA mode 49h; the IRQ
+  handler (16cb:028f, an entry) acknowledges at 22Eh and starts the next block. Only speech is
+  digital: effects stay on the AdLib (the cutscene interpreter, ovl37 opcode B0h, and the comm
+  messages, ovl06, are the only callers).
 - Scripted (instruction clock, WC_MOUSE=1): the main menu by 2100 ticks; click "Start New Game"
   `2200:@160.135,2250:+lmb,2256:-lmb`; Esc at 2600 skips the Kilrathi scene to Tolwyn's office;
   Space every 200 ticks (3000-8000) steps through the opening; the personnel database by 9000,
   `c` at 9600 (earlier is missed; a later Enter then picks "Transfer"), names typed letter by
   letter 40 ticks apart from 10200, 10600, 11000 (first, last name, callsign, each + Enter) reach
   the quarters by 11300. The middle door (`11900:@160.100,12000:+lmb`) is "Fly mission": the
-  flight deck scene, then the cockpit by 18000. The airlock (80,80) quits ("Leaving Wing Commander 2").
+  flight deck scene, then the cockpit by 18000. These are without speech (`WC_SB=0`); with it the
+  dialogue takes longer: the database comes at ~12200, so everything from `c` on is 3200 ticks
+  later (`c` at 12800, the cockpit by 21200). The airlock (80,80) quits ("Leaving Wing Commander 2").
 - The game writes savegame.wc2, TEMPGLOB.000, MEM.$$$ and err.$$$ in GAMEDAT: test in a copy of
   the folder (`--exe copy/WC2.EXE`).
 
@@ -435,4 +452,4 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in
   `ghidra_scripts/`. C11 runtime in `runtime/`, tab-indented, short comments.
 - Debug env vars (`WC_KEYS` key names: esc, enter, space, tab, backspace, arrows, f1-f3, f10, alt, ctrl, characters): `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
-  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_ROLL_AXIS`, `WC_MT32`, `WC_MT32_MACHINE`. Ctrl-C prints a report.
+  `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_ROLL_AXIS`, `WC_MT32`, `WC_MT32_MACHINE`, `WC_SB`. Ctrl-C prints a report.

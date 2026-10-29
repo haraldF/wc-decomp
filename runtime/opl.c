@@ -9,7 +9,7 @@
 uint64_t pc_now_ns(void);
 int pc_warping(void);
 int sound_open(unsigned rate);
-void sound_out(const int16_t *frames, unsigned count);
+void sound_out(int16_t *frames, unsigned count, uint64_t t0);
 int mt32_active(void);
 
 #define OPL_RATE 49716u /* the chip's own sample rate (14.31818 MHz / 288) */
@@ -47,7 +47,7 @@ void opl_poll(uint64_t now)
 	while (frames_done < due) {
 		uint32_t n = due - frames_done > 512 ? 512 : (uint32_t)(due - frames_done);
 		for (uint32_t i = 0; i < n; i++) OPL3_Generate(&chip, buf + 2 * i);
-		sound_out(buf, n);
+		sound_out(buf, n, start_ns + frames_done * 1000000000u / OPL_RATE);
 		frames_done += n;
 	}
 }

@@ -1,13 +1,16 @@
 /* Where the sound goes: the host's output and, with WC_WAV=file, a WAV recording (also headless).
- * One device makes the sound at a time: the AdLib (opl.c) or the MT-32 (mt32.c). */
+ * One device makes the sound at a time: the AdLib (opl.c) or the MT-32 (mt32.c); the Sound Blaster's
+ * digital sound (sb.c) is mixed into it. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "host.h"
 
+void sb_mix(int16_t *frames, unsigned n, unsigned out_rate, uint64_t t0);
+
 static FILE *wav;
-static uint32_t wav_rate, wav_frames;
+static uint32_t rate, wav_rate, wav_frames;
 static int to_host;
 
 static void wav_header(uint32_t frames)
@@ -32,8 +35,9 @@ static void wav_close(void)
 }
 
 /* Returns 0 when the sound goes nowhere. */
-int sound_open(unsigned rate)
+int sound_open(unsigned out_rate)
 {
+	rate = out_rate;
 	to_host = host_audio_open(rate);
 	const char *path = getenv("WC_WAV");
 	if (path && (wav = fopen(path, "wb"))) {
@@ -44,9 +48,10 @@ int sound_open(unsigned rate)
 	return to_host || wav;
 }
 
-/* 16-bit stereo frames */
-void sound_out(const int16_t *frames, unsigned count)
+/* 16-bit stereo frames, the first one made for emulated time t0 */
+void sound_out(int16_t *frames, unsigned count, uint64_t t0)
 {
+	sb_mix(frames, count, rate, t0);
 	if (to_host) host_audio(frames, count);
 	if (wav) {
 		fwrite(frames, 4, count, wav);
