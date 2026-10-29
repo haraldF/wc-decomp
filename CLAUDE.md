@@ -418,7 +418,8 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   segment above the image.
 - Its drivers differ from WC1's except the flight graphics driver: same code as d7000 (only the
   header words differ), so drivers.txt maps its hash to d7000 and FRAME_COPY applies. da000 is
-  the AdLib driver, db000 the menu/room graphics. WC1's d7000 entries were copied into
+  the AdLib driver, db000 the menu/room graphics. dc000 is its own Roland MT-32 driver (not WC1's d9000;
+  found with `WC_MT32`, since each config loads other drivers); speech plays over either music. WC1's d7000 entries were copied into
   entries-wc2.txt (valid below 7565h, where the two captures start to differ).
 - Borland's switch on a long (`mov cx,N; mov bx,table; cmp cs:[bx] ...; cmp cs:[bx+2N] ...; jmp
   cs:[bx+4N]`, four-character tags like "FORM") is read by `sparseSwitchTargets()` too.
