@@ -79,8 +79,9 @@ captured driver images (`out/loaded/*.bin`), `image.bin`/`relocs.bin`, the Borla
   with every make code (held keys ramp up through the typematic repeats); joystick button 2 held
   turns the stick's x into the roll directly and its y into speed changes. The host repeats the
   hat's left/right as `,`/`.` every 70 ms.
-- Twist (a stick's axis 2, `WC_ROLL_AXIS`; a gamepad's right stick x; the page: axis 5 in Chrome,
-  2 otherwise): the PC joystick has no such axis, so the runtime writes the roll rate (1..9 either
+- Twist (a gamepad's right stick x; a stick's twist only with `WC_ROLL_AXIS=2`, the page `?twist=5`
+  in Chrome, 2 otherwise: off by default, since the user rolled too much by accident while steering;
+  the hat's left/right rolls instead): the PC joystick has no such axis, so the runtime writes the roll rate (1..9 either
   way) itself. Each flight frame, FUN_13be_1567 reads the input (0d0d, which zeroes the rates when
   idle, and whose joystick event cancels key roll) and then turns the rates into turning speeds
   (13be:0c4e). WcRecomp emits `wc_hook(addr)` before the instructions cli.ts passes (the game's

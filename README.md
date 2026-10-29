@@ -238,7 +238,8 @@ Joystick: a joystick or game controller (SDL3; in the browser the Gamepad API) i
 the game port (201h, `runtime/joystick.c`). Button 1 fires the guns, button 2 rolls while held (both
 together: a missile). A flight stick: X/Y steer, the trigger is button 1, the thumb button button 2,
 buttons 3 and 4 Enter (missile) and Tab (afterburner), the hat up/down +/- (speed), left/right `,`
-and `.` (roll; repeated while held, natively only). A gamepad: the
+and `.` (roll; repeated while held, natively only). Twisting the stick doesn't roll (too easily done
+while steering); `WC_ROLL_AXIS=2` (the page: `?twist=5` in Chrome, `2` elsewhere) turns it on. A gamepad: the
 left stick (or the d-pad's left/right) steers, A or the right trigger is button 1, B or the left
 trigger button 2, X Enter, RB Tab, d-pad up/down +/-, Start Esc. On macOS no driver is needed; the
 runtime turns off SDL's GameController-framework backend (`SDL_JOYSTICK_MFI`), which claimed flight

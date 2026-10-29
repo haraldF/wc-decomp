@@ -232,7 +232,7 @@ static void mouse(const SDL_Event *e)
 }
 
 /* ---- game controllers and joysticks as joystick A: a gamepad's left stick (or d-pad) and two
- * buttons, a joystick's first two axes and buttons; the right stick's x or the twist rolls ---- */
+ * buttons, a joystick's first two axes and buttons; the right stick's x (or WC_ROLL_AXIS) rolls ---- */
 
 /* The controller's buttons the joystick has: A or the right trigger fires (button 1), B or the
  * left trigger is button 2; a few others are keys. */
@@ -285,9 +285,10 @@ static void gamepad(const SDL_Event *e)
 /* A joystick that isn't a gamepad (a flight stick): X and Y steer, the trigger (button 1) and the
  * thumb button (2) are the joystick's; buttons 3 and 4 are Enter and Tab, the hat up/down + and -,
  * left/right , and . (roll), which repeat while held like keys: the game rolls faster with each.
- * Axis 2 is the twist (flight sticks order their axes X, Y, twist (Rz), throttle); WC_ROLL_AXIS
- * names another, -1 none. A wider dead zone keeps steering from rolling; and the axis counts only
- * once it has been centred, so a throttle there doesn't roll forever. */
+ * The twist doesn't roll: twisting while steering rolled too much. WC_ROLL_AXIS=n rolls with axis n
+ * (flight sticks order their axes X, Y, twist (Rz), throttle: 2). A wider dead zone keeps steering
+ * from rolling; and the axis counts only once it has been centred, so a throttle there doesn't roll
+ * forever. */
 static const uint8_t stick_keys[] = { 0, 0, 0x1c, 0x0f };
 static int roll_axis = -2;    /* -2: not read yet */
 static bool roll_centred;
@@ -311,7 +312,7 @@ static void joystick(const SDL_Event *e)
 		SDL_Joystick *j = SDL_OpenJoystick(id);
 		if (roll_axis == -2) {
 			const char *e = getenv("WC_ROLL_AXIS");
-			roll_axis = e ? atoi(e) : 2;
+			roll_axis = e ? atoi(e) : -1;
 		}
 		if (j) {
 			fprintf(stderr, "wc: joystick \"%s\" (%d axes", SDL_GetJoystickName(j), SDL_GetNumJoystickAxes(j));

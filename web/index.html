@@ -451,13 +451,14 @@ function run(wc, canvas, audio) {
   // mapping): the left stick or the d-pad's left/right, A or the right trigger button 1, B or the
   // left trigger button 2; X Enter = missile, RB Tab = afterburner, d-pad up/down +/- = speed,
   // Start Esc. Any other joystick (a flight stick): axes 0 and 1, its buttons 1 and 2; 3 Enter, 4 Tab.
-  // The right stick's x, or the flight stick's twist, rolls: Chrome places a HID axis by its usage
-  // (Rz, the twist, at 5), Firefox in order (X, Y, twist, throttle); it counts once centred.
+  // The right stick's x rolls; a flight stick's twist only with ?twist=axis (Chrome places a HID axis
+  // by its usage: Rz, the twist, at 5; Firefox in order: X, Y, twist, throttle); it counts once centred.
   const padKeys = { 2: 0x1c, 5: 0x0f, 12: 0x0d, 13: 0x0c, 9: 0x01 }, stickKeys = { 2: 0x1c, 3: 0x0f };
   const padHeld = new Set();
   let padState = "";
   const deadZone = (v, zone = 0.1) => (Math.abs(v) < zone ? 0 : Math.round(((v - Math.sign(v) * zone) / (1 - zone)) * 1000));
   let rollCentred = false;
+  const twistAxis = new URLSearchParams(location.search).get("twist");
   const gamepad = () => {
     const pads = navigator.getGamepads?.().filter((p) => p && p.connected) ?? [];
     const pad = pads.find((p) => p.mapping === "standard") ?? pads[0];
@@ -472,7 +473,8 @@ function run(wc, canvas, audio) {
     if (standard && pressed(15)) x = 1000;
     const buttons = standard ? (pressed(0) || pressed(7) ? 1 : 0) | (pressed(1) || pressed(6) ? 2 : 0)
       : (pressed(0) ? 1 : 0) | (pressed(1) ? 2 : 0);
-    let roll = pad ? deadZone(pad.axes[standard ? 2 : pad.axes.length > 5 ? 5 : 2] ?? 0, 0.15) : 0;
+    const rollAxis = standard ? 2 : twistAxis !== null ? Number(twistAxis) : -1;
+    let roll = pad && rollAxis >= 0 ? deadZone(pad.axes[rollAxis] ?? 0, 0.15) : 0;
     if (!roll) rollCentred = true;
     if (!rollCentred) roll = 0;
     const state = `${x},${y},${roll},${buttons}`;
