@@ -198,6 +198,7 @@ static void open_file(int flags, const char *what)
 
 int bios_key_peek(uint16_t *key);
 uint16_t bios_key_get(uint32_t at);
+void pc_delay(uint32_t at, uint32_t ms);
 void bios_key_flush(void);
 
 /* Console input: the character of the next key; for keys without one (arrows, F1, ...) 0 first,
@@ -548,6 +549,10 @@ static void dos(uint32_t at)
 		for (char *p = dos; *p; p++) {
 			if (*p == '\\' || *p == '/' || *p == ':') name = p + 1;
 		}
+		/* Only WC2's pilot transfer searches another folder, right after Enter ended the path. Enter
+		 * is also a mouse click there: still held in the pilot list, which comes up at once here, it
+		 * cancels the list. On a real disk the key was up by then. */
+		if (name != dos) pc_delay(at, 300);
 		char fcb[11];
 		to_fcb(name, fcb);
 		*name = 0;

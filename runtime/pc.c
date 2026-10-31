@@ -622,6 +622,12 @@ static void pc_wait(uint32_t at)
 	wr(R_IF, 1, saved_if);
 }
 
+/* A DOS service taking as long as a disk would, with interrupts enabled. */
+void pc_delay(uint32_t at, uint32_t ms)
+{
+	while (ms--) pc_wait(at);
+}
+
 static void deliver(uint32_t at)
 {
 	if (!rd(R_IF, 1)) {

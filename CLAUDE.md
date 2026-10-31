@@ -471,6 +471,21 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   Saving by script: the console at 25,110 in the quarters ("Save/Load game"), a slot, S, the
   slot (arrows, Enter), a comment, Enter (checked twice into slots 0 and 1, both kept).
 
+- Pilot transfer (ovl14, personnel database, `t`): DS:820b lists savegame.wld twice and crusade.wld;
+  the slot must be used and its campaign byte (+1AAh) match the choice, nothing else. Taken from the
+  slot's player: last name, callsign, missions, kills; rank is always 2 (Captain), the first name is
+  asked. An empty path isn't accepted; DOS paths stay in the game folder, so the save goes in a
+  subfolder (`wc1` means GAMEDAT\wc1\: no backslash to find on the host's layout). Enter is also the
+  left mouse button (FUN_20e6_0004; keypad = pointer, Ins = right), and while it's held the mouse
+  poll (BX=0) and this poll flip the button at every poll, each flip posting a press. In the pilot
+  list, with the pointer placed off the rows, a press means cancel: with instant file access it
+  closed at once. DOS AH=4Eh in another folder now takes 300 ms (`pc_delay`), so the key is up.
+  Selecting by key also leaves the character in the BIOS buffer, hence in the next text field (`c`
+  in the path, a digit in the first name): click. Scripted (12000, instruction clock, WC_MOUSE=1):
+  the database by 14000; `14100:+t,14106:-t,14500:@120.85,14550:+lmb,14556:-lmb` (Crusade), `wc1` +
+  Enter from 15000, pilot row 1 `15450:@120.44,15500:+lmb,15506:-lmb`, first name from 16000: the
+  quarters ~600 ticks later. Checked by saving (savegame.wc2: 58 missions, 594 kills) and into flight.
+
 ## Conventions
 
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in

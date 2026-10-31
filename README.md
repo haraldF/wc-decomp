@@ -277,6 +277,24 @@ from slot `n` of `SAVEGAME.WLD` instead, like the game's own converters `TRANSFE
 `TRANS2.EXE` (which aren't recompiled, and accept only pilots from Venice or the Secret Missions);
 the save is named after that slot's.
 
+### A Wing Commander pilot in Wing Commander II
+
+WC2's own transfer reads the name, callsign, missions and kills from a WC1 or Secret Missions save
+(the rank becomes Captain). The game only sees its own folder, so copy the save into a subfolder of
+it, here `WC1`:
+
+```bash
+mkdir -p ../game2/GAMEDAT/WC1
+```
+
+```bash
+cp ../game/GAMEDAT/CRUSADE.WLD ../game2/GAMEDAT/WC1/
+```
+
+Start a new game. In the personnel database choose Transfer and the game (`SAVEGAME.WLD` for Wing
+Commander and Secret Missions 1, `CRUSADE.WLD` for Secret Missions 2), type `wc1` as the path, then
+click the pilot (a digit key would also land in the first name) and enter the first name.
+
 ## In the browser (WebAssembly)
 
 The same runtime builds with [Emscripten](https://emscripten.org) (`brew install emscripten`) into a
