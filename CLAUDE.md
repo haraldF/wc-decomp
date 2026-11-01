@@ -510,6 +510,12 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   it. Swapping arrays at odd offsets as 4-byte elements (the pattern finds `bb01`, the array is word
   `bb02`) scrambled the draw parameters: it only showed with ship 3 on screen, as "missing code"
   in the child. Test with `WC_FRIEND_CHASE=n` on both sides: the friend's stick chases ship n.
+- The friend's keys step the stick like the game's own (FUN_13be_0945, `ramp_key`): each key event,
+  repeats too, is one step of 8, the other way stops first. Mapped to full deflection a tap was 8 degrees
+  a frame at 15 fps. Tab goes in the block (fire bit 2; ovl11_35d8's logic with the ship's number, `friend_burner`,
+  without its random damage check: 1235 kps checked). T and L stay on the friend's side: `view_next_key`
+  feeds them to the game's key code in one child through 6609, and the target (c284), lock (6641) and
+  right display pass to the next child through the shared memory.
 - The friend's view runs ahead while they fly (`view_rates`, `net_ahead`; `WC_NET_PREDICT=0` off): each
   frame it takes the controls of the block due at that frame's slot, then what they hold now, until a
   frame has what they hold now (delay 3: 4 frames ahead at the default 15 fps, ~5 ms a picture). Key to

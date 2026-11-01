@@ -76,8 +76,11 @@ static _Thread_local int applying;
 /* the friend's controls: what they hold now, and what is in force in this block */
 static uint8_t held[128];
 static int stick_x, stick_y, stick_roll, stick_fire;
-static int f_x, f_y, f_roll, f_throttle, f_fire, f_watch;
+static int f_x, f_y, f_roll, f_throttle, f_fire, f_watch, f_burn;
 static int watch_wanted;
+static int ramp[3]; /* the arrow keys' x, y, roll: as the game's own keys (FUN_13be_0945) */
+static uint8_t view_keys[16], view_down[128]; /* T and L, for the friend's view alone */
+static int view_keys_count;
 static struct block ahead_now; /* the controls as they are this moment, not in a block yet (net_ahead) */
 static int ahead_saving;
 
@@ -312,6 +315,33 @@ static int clamp8(int v)
 	return v < -8 ? -8 : v > 8 ? 8 : v;
 }
 
+static void ramp_step(int axis, int dir)
+{
+	if (held[0x2a] || held[0x36]) ramp[axis] = dir * 8; /* with shift: at once */
+	else if (ramp[axis] * dir < 0) ramp[axis] = 0; /* the other way: stops first */
+	else if (ramp[axis] * dir < 8) ramp[axis] += dir;
+}
+
+/* Each key event, so also each repeat, is a step; a tap is a small turn. */
+static void ramp_key(uint8_t code)
+{
+	switch (code) {
+	case 0x47: ramp_step(1, 1); ramp_step(0, -1); break;
+	case 0x48: ramp_step(1, 1); break;
+	case 0x49: ramp_step(1, 1); ramp_step(0, 1); break;
+	case 0x4b: ramp_step(0, -1); break;
+	case 0x4d: ramp_step(0, 1); break;
+	case 0x4f: ramp_step(1, -1); ramp_step(0, -1); break;
+	case 0x50: ramp_step(1, -1); break;
+	case 0x51: ramp_step(1, -1); ramp_step(0, 1); break;
+	case 0x33: case 0x52: ramp_step(2, -1); break;
+	case 0x34: case 0x53: ramp_step(2, 1); break;
+	}
+	if (!(held[0x4b] || held[0x4d] || held[0x47] || held[0x49] || held[0x4f] || held[0x51])) ramp[0] = 0;
+	if (!(held[0x48] || held[0x50] || held[0x47] || held[0x49] || held[0x4f] || held[0x51])) ramp[1] = 0;
+	if (!(held[0x33] || held[0x34] || held[0x52] || held[0x53])) ramp[2] = 0;
+}
+
 /* The friend's input: their keys and stick become the wingman's controls. */
 static void friend_event(const struct event *e)
 {
@@ -322,6 +352,7 @@ static void friend_event(const struct event *e)
 			if (!ahead_saving) fprintf(stderr, "wc: net: %s\n", watch_wanted ? "watching the wingman fly" : "you fly the wingman");
 		}
 		held[e->code & 0x7f] = !(e->code & 0x80);
+		ramp_key(e->code & 0x80 ? 0 : e->code);
 		break;
 	case E_JOYSTICK:
 		stick_x = e->a * 8 / 1000;
@@ -334,11 +365,11 @@ static void friend_event(const struct event *e)
 
 static void friend_controls(struct block *s)
 {
-	s->x = (int8_t)clamp8(held[0x4d] ? 8 : held[0x4b] ? -8 : stick_x);
-	s->y = (int8_t)clamp8(held[0x48] ? 8 : held[0x50] ? -8 : stick_y);
-	s->roll = (int8_t)clamp8(held[0x34] || held[0x53] ? 8 : held[0x33] || held[0x52] ? -8 : stick_roll);
+	s->x = (int8_t)clamp8(ramp[0] ? ramp[0] : stick_x);
+	s->y = (int8_t)clamp8(ramp[1] ? ramp[1] : stick_y);
+	s->roll = (int8_t)clamp8(ramp[2] ? ramp[2] : stick_roll);
 	s->throttle = (int8_t)(held[0x0d] ? 1 : held[0x0c] ? -1 : 0);
-	s->fire = (held[0x39] || held[0x1c] || stick_fire) | (watch_wanted ? 2 : 0);
+	s->fire = (held[0x39] || held[0x1c] || stick_fire) | (watch_wanted ? 2 : 0) | (held[0x0f] ? 4 : 0);
 }
 
 static void commit_local(uint32_t number, uint64_t hash, uint32_t hash_block)
@@ -381,6 +412,7 @@ static void apply(const struct block *commander, const struct block *friend)
 	f_roll = friend->roll;
 	f_throttle = friend->throttle;
 	f_fire = friend->fire & 1;
+	f_burn = (friend->fire & 4) != 0;
 	f_watch = (friend->fire & 2) != 0; /* in the friend's block, so at the same moment on both PCs */
 }
 
@@ -449,6 +481,11 @@ void net_local_key(uint8_t code)
 	if (getenv("WC_VIEW_PRED")) fprintf(stderr, "wc: pred key real %llu code %x\n", (unsigned long long)(mono_ns() / 1000), code);
 	pthread_mutex_lock(&pending_lock);
 	if (pending_count < 256) pending[pending_count++] = (struct event){ .type = E_KEY, .code = code };
+	const uint8_t key = code & 0x7f;
+	if (wc_net_join && (key == 0x14 || key == 0x26)) {
+		if (!(code & 0x80) && !view_down[key] && view_keys_count < (int)sizeof view_keys) view_keys[view_keys_count++] = key;
+		view_down[key] = !(code & 0x80);
+	}
 	pthread_mutex_unlock(&pending_lock);
 }
 
@@ -498,6 +535,8 @@ int net_friend(int *x, int *y, int *roll, int *throttle, int *fire)
 void net_ahead_prepare(void)
 {
 	uint8_t was_held[sizeof held];
+	int was_ramp[3];
+	memcpy(was_ramp, ramp, sizeof ramp);
 	const int x = stick_x, y = stick_y, roll = stick_roll, fire = stick_fire, watch = watch_wanted;
 	memcpy(was_held, held, sizeof held);
 	pthread_mutex_lock(&pending_lock);
@@ -507,6 +546,7 @@ void net_ahead_prepare(void)
 	pthread_mutex_unlock(&pending_lock);
 	friend_controls(&ahead_now);
 	memcpy(held, was_held, sizeof held);
+	memcpy(ramp, was_ramp, sizeof ramp);
 	stick_x = x;
 	stick_y = y;
 	stick_roll = roll;
@@ -514,7 +554,24 @@ void net_ahead_prepare(void)
 	watch_wanted = watch;
 }
 
-int net_ahead(uint64_t at, int *x, int *y, int *roll, int *throttle, int *fire)
+int net_view_key(void)
+{
+	pthread_mutex_lock(&pending_lock);
+	int key = 0;
+	if (view_keys_count) {
+		key = view_keys[0];
+		memmove(view_keys, view_keys + 1, (size_t)--view_keys_count);
+	}
+	pthread_mutex_unlock(&pending_lock);
+	return key;
+}
+
+int net_friend_burn(void)
+{
+	return f_burn;
+}
+
+int net_ahead(uint64_t at, int *x, int *y, int *roll, int *throttle, int *fire, int *burn)
 {
 	const uint32_t b = next_block - 1 + (at >= next_block_ns ? (uint32_t)((at - next_block_ns) / BLOCK_NS) + 1 : 0);
 	const struct block *s = b < local_top ? &local[b % RING] : &ahead_now;
@@ -523,6 +580,7 @@ int net_ahead(uint64_t at, int *x, int *y, int *roll, int *throttle, int *fire)
 	*roll = s->roll;
 	*throttle = s->throttle;
 	*fire = s->fire & 1;
+	*burn = (s->fire & 4) != 0;
 	return b >= local_top;
 }
 

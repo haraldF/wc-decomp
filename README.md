@@ -319,6 +319,10 @@ its cockpit; `WC_NET_WATCH=1` on their side starts that way.
 The friend's cockpit runs ahead of the game on what they are pressing, so their stick, guns and
 throttle answer at once despite the input delay (`WC_NET_PREDICT=0` on their side turns that off).
 
+Their keys are the game's own in flight: arrows and `,` `.` to steer (a tap is a small turn, holding
+speeds up, Shift is full at once), Space to fire, `+` `-` for speed, Tab for the afterburner, T to pick a
+target and L to lock it. The target and the lock are only on their screen, for now without missiles.
+
 `WC_NET_DELAY` is the input delay in 1/30 s (default 3), `WC_NET_MUTE=1` silences that window. For a
 quick test, `Origin l s1 m0` after the folder (on both) starts straight in the first mission.
 
