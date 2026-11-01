@@ -19,6 +19,11 @@ int net_capture_joystick(int x, int y, int roll, int buttons);
 /* The friend's controls for this block; 0 when no friend is connected any more. */
 int net_friend(int *x, int *y, int *roll, int *throttle, int *fire);
 
+/* The friend's controls at that emulated time, for the friend's view running ahead of the game: what
+ * is on its way in the blocks, then what they hold now. Returns 1 from where that is what they hold now. */
+void net_ahead_prepare(void);
+int net_ahead(uint64_t at, int *x, int *y, int *roll, int *throttle, int *fire);
+
 time_t net_time(void); /* the same clock on both PCs */
 
 /* Provided by pc.c */

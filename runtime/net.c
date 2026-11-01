@@ -7,6 +7,7 @@
  *   WC_NET_LOSS=percent     drop this share of the packets sent, for testing
  *   WC_NET_LOG=1            print the machine's hash once a second, to compare two runs
  *   WC_NET_MUTE=1           no sound from this one, with both on one PC
+ *   WC_NET_PREDICT=0        the friend's view doesn't run ahead of the game (see pc.c)
  * Time is cut into blocks of 1/30 s of emulated time. What a player does during block B is carried
  * out in block B + delay, on both PCs, and neither enters a block before it holds the other's
  * inputs for it. Packets are unreliable and repeat everything the other side hasn't acknowledged,
@@ -77,6 +78,8 @@ static uint8_t held[128];
 static int stick_x, stick_y, stick_roll, stick_fire;
 static int f_x, f_y, f_roll, f_throttle, f_fire, f_watch;
 static int watch_wanted;
+static struct block ahead_now; /* the controls as they are this moment, not in a block yet (net_ahead) */
+static int ahead_saving;
 
 static uint64_t mono_ns(void)
 {
@@ -316,7 +319,7 @@ static void friend_event(const struct event *e)
 	case E_KEY:
 		if (e->code == 0x11 && !held[0x11]) { /* W: the AI flies, or they do */
 			watch_wanted = !watch_wanted;
-			fprintf(stderr, "wc: net: %s\n", watch_wanted ? "watching the wingman fly" : "you fly the wingman");
+			if (!ahead_saving) fprintf(stderr, "wc: net: %s\n", watch_wanted ? "watching the wingman fly" : "you fly the wingman");
 		}
 		held[e->code & 0x7f] = !(e->code & 0x80);
 		break;
@@ -327,6 +330,15 @@ static void friend_event(const struct event *e)
 		stick_fire = e->code & 1;
 		break;
 	}
+}
+
+static void friend_controls(struct block *s)
+{
+	s->x = (int8_t)clamp8(held[0x4d] ? 8 : held[0x4b] ? -8 : stick_x);
+	s->y = (int8_t)clamp8(held[0x48] ? 8 : held[0x50] ? -8 : stick_y);
+	s->roll = (int8_t)clamp8(held[0x34] || held[0x53] ? 8 : held[0x33] || held[0x52] ? -8 : stick_roll);
+	s->throttle = (int8_t)(held[0x0d] ? 1 : held[0x0c] ? -1 : 0);
+	s->fire = (held[0x39] || held[0x1c] || stick_fire) | (watch_wanted ? 2 : 0);
 }
 
 static void commit_local(uint32_t number, uint64_t hash, uint32_t hash_block)
@@ -347,13 +359,7 @@ static void commit_local(uint32_t number, uint64_t hash, uint32_t hash_block)
 	memmove(pending, pending + used, (size_t)(pending_count - used) * sizeof *pending);
 	pending_count -= used;
 	pthread_mutex_unlock(&pending_lock);
-	if (wc_net_join) {
-		s->x = (int8_t)clamp8(held[0x4d] ? 8 : held[0x4b] ? -8 : stick_x);
-		s->y = (int8_t)clamp8(held[0x48] ? 8 : held[0x50] ? -8 : stick_y);
-		s->roll = (int8_t)clamp8(held[0x34] || held[0x53] ? 8 : held[0x33] || held[0x52] ? -8 : stick_roll);
-		s->throttle = (int8_t)(held[0x0d] ? 1 : held[0x0c] ? -1 : 0);
-		s->fire = (held[0x39] || held[0x1c] || stick_fire) | (watch_wanted ? 2 : 0);
-	}
+	if (wc_net_join) friend_controls(s);
 	local_top = number + 1;
 }
 
@@ -440,6 +446,7 @@ void net_poll(void)
 
 void net_local_key(uint8_t code)
 {
+	if (getenv("WC_VIEW_PRED")) fprintf(stderr, "wc: pred key real %llu code %x\n", (unsigned long long)(mono_ns() / 1000), code);
 	pthread_mutex_lock(&pending_lock);
 	if (pending_count < 256) pending[pending_count++] = (struct event){ .type = E_KEY, .code = code };
 	pthread_mutex_unlock(&pending_lock);
@@ -485,6 +492,38 @@ int net_friend(int *x, int *y, int *roll, int *throttle, int *fire)
 	*throttle = f_throttle;
 	*fire = f_fire;
 	return 1;
+}
+
+/* Before the fork: another thread may hold the lock then, for good in the child. */
+void net_ahead_prepare(void)
+{
+	uint8_t was_held[sizeof held];
+	const int x = stick_x, y = stick_y, roll = stick_roll, fire = stick_fire, watch = watch_wanted;
+	memcpy(was_held, held, sizeof held);
+	pthread_mutex_lock(&pending_lock);
+	ahead_saving = 1;
+	for (int i = 0; i < pending_count; i++) friend_event(&pending[i]);
+	ahead_saving = 0;
+	pthread_mutex_unlock(&pending_lock);
+	friend_controls(&ahead_now);
+	memcpy(held, was_held, sizeof held);
+	stick_x = x;
+	stick_y = y;
+	stick_roll = roll;
+	stick_fire = fire;
+	watch_wanted = watch;
+}
+
+int net_ahead(uint64_t at, int *x, int *y, int *roll, int *throttle, int *fire)
+{
+	const uint32_t b = next_block - 1 + (at >= next_block_ns ? (uint32_t)((at - next_block_ns) / BLOCK_NS) + 1 : 0);
+	const struct block *s = b < local_top ? &local[b % RING] : &ahead_now;
+	*x = s->x;
+	*y = s->y;
+	*roll = s->roll;
+	*throttle = s->throttle;
+	*fire = s->fire & 1;
+	return b >= local_top;
 }
 
 time_t net_time(void)

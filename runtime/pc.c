@@ -816,19 +816,21 @@ static struct view_shared {
 	uint8_t pixels[2][320 * 200], palette[2][256 * 3];
 } *view;
 static uint64_t view_forks, view_fork_ns;
+static int view_ahead_on, view_frames, view_stick[3];
+static uint64_t view_t0, view_period;
 static int friend_sign_x = 1, friend_sign_y = 1;
 
 static uint16_t ds_w(uint32_t off) { uint16_t v; memcpy(&v, M + swap_ds() + off, 2); return v; }
 static void ds_set(uint32_t off, uint16_t v) { memcpy(M + swap_ds() + off, &v, 2); }
 
 /* The guns, called as the player's Space key does (FUN_13be_0c0a), with the ship's number. */
-static void friend_guns(void)
+static void friend_guns(uint16_t ship)
 {
 	static uint8_t saved[sizeof R];
 	memcpy(saved, R, sizeof R);
 	uint16_t sp = (uint16_t)rd(R_SP, 2), ss = (uint16_t)rd(R_SS, 2);
 	uint32_t stack = ss * 16u;
-	uint16_t frame[3] = { 0, (uint16_t)rd(R_CS, 2), 1 }; /* ip, cs, the argument */
+	uint16_t frame[3] = { 0, (uint16_t)rd(R_CS, 2), ship }; /* ip, cs, the argument */
 	sp -= 6;
 	memcpy(M + stack + sp, frame, 6);
 	wr(R_SP, 2, sp);
@@ -986,17 +988,21 @@ void friend_hook(uint32_t at)
 	}
 	ds_set(0xb9f6 + 4, (uint16_t)set);
 	ds_set(0xb9f6 + 6, (uint16_t)(set >> 16));
-	if (fire && ds_w(0xbb8e + 2) == 0xffff && (int16_t)ds_w(0xbe3a + 2) > 0) friend_guns();
+	if (fire && ds_w(0xbb8e + 2) == 0xffff && (int16_t)ds_w(0xbe3a + 2) > 0) friend_guns(1);
 }
 
 /* The friend's view: each flight frame, a child process (fork, so nothing it does can touch the game
  * here) swaps the player and the wingman in its copy of the machine, runs on for two frames, leaves
- * the picture in shared memory and ends. The window shows the newest while they keep coming. */
+ * the picture in shared memory and ends. The window shows the newest while they keep coming.
+ * While the friend flies it also runs ahead of the game: their input takes the input delay to reach
+ * it, so the child plays the blocks on their way and what they hold now, frame by frame on the game's
+ * clock, until a frame has what they hold now. A wrong guess (the commander's next move) ends with the
+ * child, and the next one starts from the real game. */
 void mouse_view_reset(void);
 void joystick_view_reset(void);
+enum { VIEW_AHEAD_MAX = 10 }; /* frames, however long the input delay */
 static pid_t view_pid;
 static uint64_t view_spawned;
-static int view_frames, view_stick[3];
 
 int pc_view_child(void) { return view_child; }
 
@@ -1024,6 +1030,16 @@ void view_rates(void)
 		return;
 	}
 	if (!view_child) return;
+	if (view_ahead_on) {
+		int throttle, fire;
+		net_ahead(view_t0 + (uint64_t)view_frames * view_period, &view_stick[0], &view_stick[1], &view_stick[2], &throttle, &fire);
+		/* what friend_hook does to the wingman in the game */
+		const int32_t was = (int32_t)(ds_w(0xb9f6) | (uint32_t)ds_w(0xb9f6 + 2) << 16) + throttle * 256, top = ds_w(0xae60) * 256;
+		const uint32_t set = (uint32_t)(was < 0 ? 0 : was > top ? top : was);
+		ds_set(0xb9f6, (uint16_t)set);
+		ds_set(0xb9f6 + 2, (uint16_t)(set >> 16));
+		if (fire && ds_w(0xbb8e) == 0xffff && (int16_t)ds_w(0xbe3a) > 0) friend_guns(0);
+	}
 	ds_set(0xc3aa, (uint16_t)view_stick[1]);
 	ds_set(0xc3ac, (uint16_t)view_stick[0]);
 	ds_set(0xc3ae, (uint16_t)view_stick[2]);
@@ -1032,8 +1048,30 @@ void view_rates(void)
 	M[swap_ds() + 0x660a] = 0;
 }
 
+/* WC_VIEW_PRED: for comparing the view's friend, commander and first enemy with the game's, by frame. */
+static uint64_t view_game_frames;
+static void view_log_ships(const char *who, uint64_t frame, int friend_ship)
+{
+	if (!getenv("WC_VIEW_PRED")) return;
+	const int32_t *p = (const int32_t *)(M + swap_ds() + 0xa9c2), *a = (const int32_t *)(M + swap_ds() + 0xaeb6);
+	const int f = friend_ship * 3, c = (1 - friend_ship) * 3;
+	fprintf(stderr, "wc: pred %s %llu real %llu friend %d %d %d axis %d %d %d cmd %d %d %d enemy %d %d %d speedset %d\n", who, (unsigned long long)frame, (unsigned long long)(real_ns() / 1000),
+		p[f], p[f + 1], p[f + 2], a[f], a[f + 1], a[f + 2], p[c], p[c + 1], p[c + 2], p[6], p[7], p[8], (int32_t)(ds_w(0xb9f6 + 4 * friend_ship) | (uint32_t)ds_w(0xb9f6 + 4 * friend_ship + 2) << 16));
+}
+
+static void view_log_input(void)
+{
+	static int was[3];
+	if (!view_ahead_on || !getenv("WC_VIEW_PRED")) return;
+	int x, y, roll, throttle, fire;
+	net_ahead(UINT64_MAX / 2, &x, &y, &roll, &throttle, &fire);
+	if (x != was[0] || y != was[1] || roll != was[2]) fprintf(stderr, "wc: pred input real %llu frame %llu stick %d %d %d\n", (unsigned long long)(real_ns() / 1000), (unsigned long long)view_game_frames, x, y, roll);
+	was[0] = x; was[1] = y; was[2] = roll;
+}
+
 static void view_publish(void)
 {
+	view_log_ships("view", view_game_frames + (uint64_t)view_frames, 0);
 	if (getenv("WC_VIEW_LOG")) /* a radio message without text, in this child's memory */
 		for (uint32_t a = 0; a + 8 < 0xa0000; a++)
 			if (!memcmp(M + a, ": (null)", 8)) {
@@ -1041,6 +1079,11 @@ static void view_publish(void)
 				break;
 			}
 	int next = !atomic_load(&view->current);
+	if (getenv("WC_VIEW_PRED")) {
+		int changed = 0;
+		for (size_t i = 0; i < sizeof view->pixels[next]; i++) changed += M[0xa0000 + i] != view->pixels[!next][i];
+		fprintf(stderr, "wc: pred picture real %llu changed %d\n", (unsigned long long)(real_ns() / 1000), changed);
+	}
 	memcpy(view->pixels[next], M + 0xa0000, sizeof view->pixels[next]);
 	memcpy(view->palette[next], wc_palette, sizeof view->palette[next]);
 	atomic_store(&view->current, next);
@@ -1067,6 +1110,17 @@ static void view_spawn(void)
 	if (ds_w(0x662c) != 1 || ds_w(0xbd1a + 2) != 12) return; /* no wingman to see from */
 	int x = 0, y = 0, roll = 0, throttle, fire;
 	const int flying = net_friend(&x, &y, &roll, &throttle, &fire);
+	const uint64_t fps = atomic_load_explicit(&flight_fps, memory_order_relaxed);
+	const char *predict = getenv("WC_NET_PREDICT");
+	view_ahead_on = flying && fps && !(predict && !strcmp(predict, "0"));
+	if (view_ahead_on) {
+		net_ahead_prepare();
+		view_period = 1000000000u / fps;
+		view_t0 = pc_now_ns();
+		/* the next frame starts at its slot (pc_frame) */
+		if (pacing && view_t0 <= next_frame_ns + 4 * view_period && next_frame_ns + view_period > view_t0) view_t0 = next_frame_ns + view_period;
+	}
+	view_log_input();
 	fflush(NULL);
 	const uint64_t before = real_ns();
 	pid_t pid = fork();
@@ -1080,6 +1134,7 @@ static void view_spawn(void)
 	}
 	view_child = 1;
 	view_start = wc_icount;
+	if (view_ahead_on) clock_skip_ns += view_t0 - pc_now_ns();
 	mouse_view_reset();
 	joystick_view_reset();
 	view_stick[0] = x;
@@ -1109,13 +1164,24 @@ int pc_view_frame(uint8_t *pixels, uint8_t *palette)
 void pc_frame(uint32_t at)
 {
 	if (view_child) {
-		if (++view_frames == 2) { /* the frame after the swap is on the screen */
+		view_frames++;
+		int x, y, roll, throttle, fire;
+		/* The frame before this one is on the screen: the one after the swap, or further on. */
+		const int fresh = !view_ahead_on || view_frames >= VIEW_AHEAD_MAX
+			|| net_ahead(view_t0 + (uint64_t)(view_frames - 2) * view_period, &x, &y, &roll, &throttle, &fire);
+		if (view_frames >= 2 && fresh) {
 			view_publish();
 			_exit(0);
+		}
+		if (view_ahead_on) { /* the frame's slot, as below */
+			const uint64_t now = pc_now_ns(), slot = view_t0 + (uint64_t)view_frames * view_period;
+			if (now < slot) clock_skip_ns += slot - now;
 		}
 		return;
 	}
 	if (wc_net_join) {
+		view_game_frames++;
+		view_log_ships("game", view_game_frames, 1);
 		view_spawn();
 		if (view_child) return;
 	}

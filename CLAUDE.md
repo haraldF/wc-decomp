@@ -505,11 +505,21 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 - The friend's cockpit is a `fork()` per flight frame on their side: the child swaps objects 0 and
   1, runs two frames, publishes the picture in shared memory and exits, so it can't touch the game.
   It must not reach host code holding locks (`vga_poll`, sound, `poll_keyboard` return early) and
-  leaves at DOS file calls. No `fork()` in the browser: there, copy and restore (`WC_SWAP_MODE=fork`).
+  leaves at other DOS file calls. No `fork()` in the browser: there, copy and restore (`WC_SWAP_MODE=fork`).
   A child that fails ends silently, and the window keeps the last picture; `WC_VIEW_LOG=1` reports
   it. Swapping arrays at odd offsets as 4-byte elements (the pattern finds `bb01`, the array is word
   `bb02`) scrambled the draw parameters: it only showed with ship 3 on screen, as "missing code"
   in the child. Test with `WC_FRIEND_CHASE=n` on both sides: the friend's stick chases ship n.
+- The friend's view runs ahead while they fly (`view_rates`, `net_ahead`; `WC_NET_PREDICT=0` off): each
+  frame it takes the controls of the block due at that frame's slot, then what they hold now, until a
+  frame has what they hold now (delay 3: 4 frames ahead at the default 15 fps, ~5 ms a picture). Key to
+  picture ~30 ms against ~160 ms without; only the commander's next move can be wrong, and that ends
+  with the child. The child must keep the game's frame slots (`clock_skip_ns`, from the next frame's
+  slot) and fires through the rates hook: the turning routine's hook doesn't run for ship 0. A stall on
+  the other side's inputs still stops the pictures: nothing is forked while the game waits. It may read
+  files it opens itself (`view_file_call`; the game opens DISK.004 for read and write every 32 frames
+  in one test flight, only there): a file opened before the fork shares its position with the game.
+  `WC_VIEW_PRED=1` logs keys, pictures and ships by frame, to compare with the game's.
 - `Origin l s1 m0` launches a mission directly (`l`), handy for tests; `-k` is invulnerability.
 
 ## Conventions

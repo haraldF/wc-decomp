@@ -600,12 +600,32 @@ void vga_bios(uint32_t at);
 void mouse_int(uint32_t at);
 void ems_int(uint32_t at);
 
+/* The friend's view has no files but those it opens itself to read (DISK.004, which only its side needs):
+ * those have their own place in the file, where one opened before the fork would move the game's. */
+static uint32_t view_handles;
+
+static int view_file_call(void)
+{
+	const unsigned ah = (unsigned)rd(R_AH, 1), bx = (unsigned)rd(R_BX, 2);
+	if (ah < 0x3c || ah > 0x4c) return 1;
+	if (ah == 0x3d) { /* the game asks for read and write, and only reads */
+		wr(R_AX, 1, AL & ~3u);
+		return 1;
+	}
+	if (ah != 0x3e && ah != 0x3f && ah != 0x42) return 0;
+	if (bx >= 32 || !(view_handles >> bx & 1)) return 0;
+	if (ah == 0x3e) view_handles &= ~(1u << bx);
+	return 1;
+}
+
 void dos_int(uint64_t n, uint32_t at)
 {
-	if (n == 0x21 && pc_view_child() && rd(R_AH, 1) >= 0x3c && rd(R_AH, 1) <= 0x4c) _exit(0); /* the friend's view has no files: the game is leaving flight */
+	const int view_open = n == 0x21 && pc_view_child() && rd(R_AH, 1) == 0x3d;
+	if (n == 0x21 && pc_view_child() && !view_file_call()) _exit(0); /* the game is leaving flight */
 	switch (n) {
 	case 0x21:
 		dos(at);
+		if (view_open && !rd(R_CF, 1) && rd(R_AX, 2) < 32) view_handles |= 1u << rd(R_AX, 2);
 		return;
 	case 0x10:
 		vga_bios(at);
