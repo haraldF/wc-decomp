@@ -1,5 +1,6 @@
 /* CPU state, dispatch into the recompiled code, failure reporting and I/O ports. */
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 
 #include "host.h"
@@ -191,6 +192,7 @@ uint32_t runtime_addr(uint32_t code)
 }
 
 void pc_frame(uint32_t at);
+int pc_view_child(void);
 
 /* The flight graphics driver's routine that copies the finished frame to the screen: entry 4 of
  * driver d7000 (drivers.txt fixes which driver gets which virtual segment). */
@@ -275,6 +277,7 @@ void run_code(uint32_t code)
 	}
 	/* Exit code 4 + this line: "npm run discover" adds the address as an entry point. */
 	fflush(stdout);
+	if (pc_view_child() && !getenv("WC_VIEW_LOG")) _exit(4);
 	fprintf(stderr, "wc: missing code at %05x\n", code);
 	cpu_report(stderr);
 	host_exit(4);
@@ -325,6 +328,7 @@ void cpu_report(FILE *f)
 
 _Noreturn void cpu_fail(const char *what, uint32_t at)
 {
+	if (pc_view_child()) _exit(3); /* the friend's view went wrong: the game goes on without this picture */
 	fflush(stdout);
 	fprintf(stderr, "wc: %s %05x (CS=%04llx)\n", what, at, rd(R_CS, 2));
 	cpu_report(stderr);

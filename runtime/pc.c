@@ -645,17 +645,17 @@ static struct {
 static const struct { uint16_t off, stride; } swap_builtin[] = {
 	{0x9562,2}, {0x95ca,2}, {0x96b6,8}, {0x98ca,2}, {0x98ea,4}, {0x9a90,1}, {0x9af0,4}, {0x9b1e,12},
 	{0x9c86,8}, {0x9e18,2}, {0x9e2e,2}, {0x9e66,4}, {0x9eb4,4}, {0xa9a2,2}, {0xa9c2,12}, {0xacc4,2},
-	{0xad43,4}, {0xadc4,12}, {0xae3c,1}, {0xae3d,1}, {0xae4c,2}, {0xae60,2}, {0xae75,1}, {0xaeb6,12},
-	{0xb1b6,12}, {0xb4b6,12}, {0xb7b6,2}, {0xb7c9,4}, {0xb84a,1}, {0xb862,2}, {0xb8e2,2}, {0xb8f5,4},
-	{0xb976,2}, {0xb9f6,4}, {0xbb01,4}, {0xbb8e,2}, {0xbd0e,1}, {0xbd1a,2}, {0xbd9a,2}, {0xbe26,2},
-	{0xbe3a,2}, {0xbe4e,1}, {0xbe58,2}, {0xbe6c,4}, {0xbe94,2}, {0xbea8,1}, {0xbeb1,4}, {0xbf42,2},
+	{0xad44,2}, {0xadc4,12}, {0xae3c,1}, {0xae4c,2}, {0xae60,2}, {0xae75,1}, {0xaeb6,12},
+	{0xb1b6,12}, {0xb4b6,12}, {0xb7b6,2}, {0xb7ca,2}, {0xb84a,1}, {0xb862,2}, {0xb8e2,2}, {0xb8f6,2},
+	{0xb976,2}, {0xb9f6,4}, {0xbb02,2}, {0xbb8e,2}, {0xbd0e,1}, {0xbd1a,2}, {0xbd9a,2}, {0xbe26,2},
+	{0xbe3a,2}, {0xbe4e,1}, {0xbe58,2}, {0xbe6c,4}, {0xbe94,2}, {0xbea8,1}, {0xbeb2,2}, {0xbf42,2},
 	{0xbfc2,2}, {0xbfd6,1}, {0xbfe0,2}, {0xbff8,2}, {0xc078,1}, {0xc0ba,2}, {0xc16e,1}, {0xc17a,2},
 	{0xc236,1}, {0xc244,1}, {0xc260,2}, {0xc284,1}, {0xc28e,2}, {0xc30e,1}, {0xc34e,2}, {0xc364,2},
-	{0xc378,2}, {0xc38c,2}, {0xc3a0,1}, {0xc3b0,2}, {0xc430,4}, {0xc458,1}, {0xc462,1}, {0xc463,1},
+	{0xc378,2}, {0xc38c,2}, {0xc3a0,1}, {0xc3b0,2}, {0xc430,4}, {0xc458,1}, {0xc462,1}, 
 	{0xc670,2}, {0xc68a,2}, {0xc69e,2}, {0xc6be,2}, {0xc6d2,2}, {0xc754,4}, {0xc854,1}, {0xc85e,8},
 	{0xc8ae,1}, {0xc8b8,1}, {0xc8c2,2}, {0xc942,1}, {0xc94c,2}, {0xc960,2}, {0xc974,2}, {0xc988,4},
 	{0xc9b0,1}, {0xca3c,1}, {0xca46,2}, {0xca4c,1}, {0xca56,2}, {0xca6a,12}, {0xcae2,12}, {0xcde2,2},
-	{0xce9a,12}, {0xd1a0,1}, {0xd1a2,1}, {0xd1ac,2}, {0xd22c,1}, {0xd236,1}, {0xd240,1}, {0xd241,1},
+	{0xce9a,12}, {0xd1a0,1}, {0xd1a2,1}, {0xd1ac,2}, {0xd22c,1}, {0xd236,1}, {0xd240,1}, 
 	{0xd24c,1}, {0xd3e6,2}, {0xd416,4}, {0xd4b6,4}, {0xd536,2}, {0xd57c,2}, {0xd580,2},
 };
 
@@ -887,6 +887,18 @@ void friend_hook(uint32_t at)
 	int x = from_net ? net_x : friend_script[friend_pos].x, y = from_net ? net_y : friend_script[friend_pos].y;
 	int roll = from_net ? net_roll : friend_script[friend_pos].roll, fire = from_net ? net_fire : friend_script[friend_pos].fire;
 	int guns_off = fire == 3;
+	if (from_net && getenv("WC_FRIEND_CHASE")) { /* test: keeps that ship in the friend's view */
+		const int32_t *me = (const int32_t *)(M + swap_ds() + 0xa9c2 + 12), *p = (const int32_t *)(M + swap_ds() + 0xa9c2 + 12 * atoi(getenv("WC_FRIEND_CHASE")));
+		const int32_t *ax = (const int32_t *)(M + swap_ds() + 0xaeb6 + 12), *ay = (const int32_t *)(M + swap_ds() + 0xb1b6 + 12),
+			*az = (const int32_t *)(M + swap_ds() + 0xb4b6 + 12);
+		double rx = p[0] - me[0], ry = p[1] - me[1], rz = p[2] - me[2];
+		double px = rx * ax[0] + ry * ax[1] + rz * ax[2], py = rx * ay[0] + ry * ay[1] + rz * ay[2], pz = rx * az[0] + ry * az[1] + rz * az[2];
+		double a = pz > 0 ? pz : 1e-9;
+		x = pz > 0 ? (int)(48 * px / a) : px >= 0 ? 8 : -8;
+		y = (int)(48 * py / a);
+		x = x > 8 ? 8 : x < -8 ? -8 : x;
+		y = y > 8 ? 8 : y < -8 ? -8 : y;
+	}
 	if (fire == 2 || fire == 3) { /* test: stands in for a person, aiming at the nearest enemy (3: holding fire) */
 		int best = -1;
 		double bestd = 1e30, rx = 0, ry = 0, rz = 0;
@@ -983,11 +995,13 @@ static void view_spawn(void)
 		if (view == MAP_FAILED) { view = NULL; return; }
 	}
 	if (view_pid) {
-		if (waitpid(view_pid, NULL, WNOHANG) == 0) {
+		int status = 0;
+		if (waitpid(view_pid, &status, WNOHANG) == 0) {
 			if (real_ns() - view_spawned < 1000000000u) return; /* still at it */
 			kill(view_pid, SIGKILL);
-			waitpid(view_pid, NULL, 0);
+			waitpid(view_pid, &status, 0);
 		}
+		if (status && getenv("WC_VIEW_LOG")) fprintf(stderr, "wc: view failed, status %x, tick %llu\n", status, (unsigned long long)ticks);
 		view_pid = 0;
 	}
 	if (ds_w(0x662c) != 1 || ds_w(0xbd1a + 2) != 12) return; /* no wingman to see from */

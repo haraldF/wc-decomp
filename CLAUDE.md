@@ -506,6 +506,10 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   1, runs two frames, publishes the picture in shared memory and exits, so it can't touch the game.
   It must not reach host code holding locks (`vga_poll`, sound, `poll_keyboard` return early) and
   leaves at DOS file calls. No `fork()` in the browser: there, copy and restore (`WC_SWAP_MODE=fork`).
+  A child that fails ends silently, and the window keeps the last picture; `WC_VIEW_LOG=1` reports
+  it. Swapping arrays at odd offsets as 4-byte elements (the pattern finds `bb01`, the array is word
+  `bb02`) scrambled the draw parameters: it only showed with ship 3 on screen, as "missing code"
+  in the child. Test with `WC_FRIEND_CHASE=n` on both sides: the friend's stick chases ship n.
 - `Origin l s1 m0` launches a mission directly (`l`), handy for tests; `-k` is invulnerability.
 
 ## Conventions
