@@ -5,11 +5,13 @@
  * window. */
 #include <pthread.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 
 #include <SDL3/SDL.h>
 
 #include "host.h"
+#include "net.h"
 
 static SDL_Window *window;
 static SDL_Renderer *renderer;
@@ -102,6 +104,12 @@ static void show_speed(void)
 	if (c) snprintf(title, sizeof title, "Wing Commander \xe2\x80\x94 %llu cycles/ms, %llu fps in flight, mouse \xc3\x97%.2g",
 		(unsigned long long)c, (unsigned long long)pc_flight_fps(0), mouse_speed);
 	else snprintf(title, sizeof title, "Wing Commander \xe2\x80\x94 max speed, mouse \xc3\x97%.2g", mouse_speed);
+	if (wc_net_on) {
+		char named[300];
+		snprintf(named, sizeof named, "%s - %s", wc_net_join ? "Wingman" : "Commander", title);
+		SDL_SetWindowTitle(window, named);
+		return;
+	}
 	SDL_SetWindowTitle(window, title);
 }
 
@@ -389,8 +397,11 @@ void host_audio(const int16_t *frames, unsigned count)
 	SDL_PutAudioStreamData(audio, frames, (int)count * 4);
 }
 
+int pc_view_child(void);
+
 _Noreturn void host_exit(int code)
 {
+	if (pc_view_child()) _exit(code);
 	exit(code);
 }
 

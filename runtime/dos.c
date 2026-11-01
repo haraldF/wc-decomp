@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "host.h"
+#include "net.h"
 #include "wc_rt.h"
 
 void cpu_report(FILE *f);
@@ -257,7 +258,8 @@ static void find_next(void)
 		if (!fcb_match(pattern, fcb) || stat(path, &st) < 0) continue;
 		if (S_ISDIR(st.st_mode) && !(attr & 0x10)) continue;
 		struct tm tm;
-		localtime_r(&st.st_mtime, &tm);
+		time_t mtime = wc_net_on ? net_time() : st.st_mtime;
+		localtime_r(&mtime, &tm);
 		M[dta + 0x15] = S_ISDIR(st.st_mode) ? 0x10 : 0x20;
 		mwr(dta + 0x16, 2, tm.tm_hour << 11 | tm.tm_min << 5 | tm.tm_sec / 2);
 		mwr(dta + 0x18, 2, (tm.tm_year - 80) << 9 | (tm.tm_mon + 1) << 5 | tm.tm_mday);
@@ -355,7 +357,7 @@ static void dos(uint32_t at)
 		mwr(AL * 4 + 2, 2, DS);
 		break;
 	case 0x2a: { /* get date */
-		time_t t = time(NULL);
+		time_t t = net_time();
 		struct tm *tm = localtime(&t);
 		wr(R_CX, 2, tm->tm_year + 1900);
 		wr(R_DH, 1, tm->tm_mon + 1);
@@ -364,7 +366,7 @@ static void dos(uint32_t at)
 		break;
 	}
 	case 0x2c: { /* get time */
-		time_t t = time(NULL);
+		time_t t = net_time();
 		struct tm *tm = localtime(&t);
 		wr(R_CH, 1, tm->tm_hour);
 		wr(R_CL, 1, tm->tm_min);
@@ -582,10 +584,16 @@ static uint64_t bios_ticks(void)
 {
 	struct timespec ts;
 	clock_gettime(CLOCK_REALTIME, &ts);
+	if (wc_net_on) {
+		ts.tv_sec = net_time();
+		ts.tv_nsec = 0;
+	}
 	struct tm *tm = localtime(&ts.tv_sec);
 	double secs = tm->tm_hour * 3600 + tm->tm_min * 60 + tm->tm_sec + ts.tv_nsec / 1e9;
 	return (uint64_t)(secs * 1193180.0 / 65536.0);
 }
+
+int pc_view_child(void);
 
 /* The BIOS and DOS services behind the vectors' initial F000:nn entries. */
 void vga_bios(uint32_t at);
@@ -594,6 +602,7 @@ void ems_int(uint32_t at);
 
 void dos_int(uint64_t n, uint32_t at)
 {
+	if (n == 0x21 && pc_view_child() && rd(R_AH, 1) >= 0x3c && rd(R_AH, 1) <= 0x4c) _exit(0); /* the friend's view has no files: the game is leaving flight */
 	switch (n) {
 	case 0x21:
 		dos(at);

@@ -50,12 +50,16 @@ static uint8_t status(void)
 /* ---- frames for the host ---- */
 
 static pthread_mutex_t frame_lock = PTHREAD_MUTEX_INITIALIZER;
+int pc_view_child(void);
+int pc_view_frame(uint8_t *pixels, uint8_t *palette);
+
 static uint8_t frame_pixels[320 * 200], frame_palette[256 * 3];
 static uint64_t frame_count, frame_taken;
 
 /* Called regularly on the emulation's thread: at each retrace, copy the picture for the host. */
 void vga_poll(uint64_t now)
 {
+	if (pc_view_child()) return;
 	uint64_t frame = (now - start_ns + FRAME_NS - (uint64_t)RETRACE_LINE * LINE_NS) / FRAME_NS;
 	if (frame == frame_taken) return;
 	frame_taken = frame;
@@ -82,6 +86,7 @@ uint64_t vga_frame(uint8_t pixels[320 * 200], uint8_t palette[256 * 3])
 	memcpy(palette, frame_palette, sizeof frame_palette);
 	uint64_t n = frame_count;
 	pthread_mutex_unlock(&frame_lock);
+	pc_view_frame(pixels, palette); /* the friend sees from their own ship */
 	return n;
 }
 

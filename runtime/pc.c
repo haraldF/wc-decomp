@@ -2,15 +2,19 @@
  * the keyboard controller and the ROM BIOS entry points (every interrupt vector starts out
  * pointing to F000:nn, handled here natively). */
 #include <fcntl.h>
+#include <signal.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "host.h"
+#include "net.h"
 #include "wc_rt.h"
 
 void dos_int(uint64_t n, uint32_t at);
@@ -162,6 +166,9 @@ static void warp_start(void)
 	atomic_store(&warp_end_ns, 0);
 }
 
+static int view_child; /* this process only draws the friend's view (see view_spawn) */
+static uint64_t view_start;
+
 static uint32_t pit_divisor = 65536; /* 18.2 Hz */
 static uint8_t pit_access = 3, pit_mode = 3, pit_low_next = 1, pit_low;
 static uint64_t pit_next_ns, pit_period_ns, pit_start_ns;
@@ -265,11 +272,23 @@ uint8_t pc_stick_key(unsigned button)
 	return button + 1 < sizeof stick_keys ? stick_keys[button + 1] : 0;
 }
 
+/* A key from this PC: with a friend, it waits until it is due on both PCs. */
+static void key_out(uint8_t code)
+{
+	if (wc_net_on) net_local_key(code);
+	else kbd_push(code);
+}
+
+void pc_net_key(uint8_t code)
+{
+	kbd_push(code);
+}
+
 static void press(uint8_t code)
 {
 	if (code) {
-		kbd_push(code);
-		kbd_push(code | 0x80);
+		key_out(code);
+		key_out(code | 0x80);
 	}
 }
 
@@ -388,6 +407,8 @@ static void restore_tty(void)
 
 static void poll_keyboard(void)
 {
+	if (view_child) return;
+	net_poll();
 	while (script_pos < script_len && ticks >= script[script_pos].tick) {
 		uint8_t code = script[script_pos].code;
 		char how = script[script_pos].how;
@@ -421,12 +442,12 @@ static void poll_keyboard(void)
 			if (how != '+') pc_mouse(script_mx, script_my, script_buttons &= ~code);
 		}
 		else if (how == '+') {
-			kbd_push(code);
+			key_out(code);
 			script_held = code;
 			script_repeat_ns = pc_now_ns() + 500000000u;
 		}
 		else if (how == '-') {
-			kbd_push(code | 0x80);
+			key_out(code | 0x80);
 			if (script_held == code) script_held = 0;
 		}
 		else press(code);
@@ -436,7 +457,7 @@ static void poll_keyboard(void)
 		pc_joystick(script_jx, script_jy, script_jroll, script_jbuttons = 0);
 	}
 	if (script_held && pc_now_ns() >= script_repeat_ns) {
-		kbd_push(script_held);
+		key_out(script_held);
 		script_repeat_ns += 92000000u;
 	}
 	uint32_t head = atomic_load_explicit(&host_keys_head, memory_order_relaxed);
@@ -445,7 +466,7 @@ static void poll_keyboard(void)
 		uint64_t now = pc_now_ns();
 		if (!(code & 0x80)) key_down_ns[code] = now;
 		else if (now - key_down_ns[code & 0x7f] < MIN_KEY_NS) break; /* later keys wait behind it */
-		kbd_push(code);
+		key_out(code);
 		head++;
 	}
 	atomic_store_explicit(&host_keys_head, head, memory_order_release);
@@ -508,6 +529,7 @@ static uint64_t faster(uint64_t c, int change, uint64_t lo, uint64_t hi)
 
 uint64_t pc_cycles(int change)
 {
+	if (wc_net_on) change = 0; /* both PCs must run alike */
 	uint64_t c = faster(atomic_load(&cycles_per_ms), change, 500, 1000000);
 	atomic_store(&cycles_per_ms, c);
 	return c;
@@ -515,6 +537,7 @@ uint64_t pc_cycles(int change)
 
 uint64_t pc_flight_fps(int change)
 {
+	if (wc_net_on) change = 0;
 	uint64_t f = faster(atomic_load(&flight_fps), change, 5, 200);
 	atomic_store(&flight_fps, f);
 	return f;
@@ -525,8 +548,29 @@ int pc_in_flight(void)
 	return atomic_load_explicit(&pacing_seen, memory_order_relaxed);
 }
 
+/* With a friend the emulated clock counts instructions, like headless, and follows real time here. */
+static void net_pace(void)
+{
+	static uint64_t real0, emul0;
+	uint64_t real = real_ns(), emul = pc_now_ns();
+	if (!real0 || real > real0 + (emul - emul0) + 250000000u) { /* started, or held up: go on from here */
+		real0 = real;
+		emul0 = emul;
+	}
+	uint64_t due = real0 + (emul - emul0);
+	if (due > real + 1000000u) {
+		uint64_t wait = due - real;
+		struct timespec ts = { 0, (long)(wait < 4000000u ? wait : 4000000u) };
+		nanosleep(&ts, NULL);
+	}
+}
+
 static void throttle(void)
 {
+	if (wc_net_on) {
+		if (!view_child) net_pace();
+		return;
+	}
 	uint64_t cycles = atomic_load_explicit(&cycles_per_ms, memory_order_relaxed);
 	if (!cycles || clock_instructions) return;
 	if (pc_warping()) {
@@ -565,6 +609,7 @@ static void throttle(void)
 void irq_poll(uint32_t at)
 {
 	if (!(wc_icount & 0x3ff)) {
+		if (view_child && wc_icount - view_start > 40000000u) _exit(0); /* lost: the next one may do better */
 		throttle();
 		poll_devices();
 	}
@@ -596,11 +641,35 @@ static struct {
 	int irq_pending, script_pos, script_mx, script_my, script_buttons, pacing;
 } swap_saved;
 
+/* The game's per-object arrays, by their DS offset and element size (from the decompiled code). */
+static const struct { uint16_t off, stride; } swap_builtin[] = {
+	{0x9562,2}, {0x95ca,2}, {0x96b6,8}, {0x98ca,2}, {0x98ea,4}, {0x9a90,1}, {0x9af0,4}, {0x9b1e,12},
+	{0x9c86,8}, {0x9e18,2}, {0x9e2e,2}, {0x9e66,4}, {0x9eb4,4}, {0xa9a2,2}, {0xa9c2,12}, {0xacc4,2},
+	{0xad43,4}, {0xadc4,12}, {0xae3c,1}, {0xae3d,1}, {0xae4c,2}, {0xae60,2}, {0xae75,1}, {0xaeb6,12},
+	{0xb1b6,12}, {0xb4b6,12}, {0xb7b6,2}, {0xb7c9,4}, {0xb84a,1}, {0xb862,2}, {0xb8e2,2}, {0xb8f5,4},
+	{0xb976,2}, {0xb9f6,4}, {0xbb01,4}, {0xbb8e,2}, {0xbd0e,1}, {0xbd1a,2}, {0xbd9a,2}, {0xbe26,2},
+	{0xbe3a,2}, {0xbe4e,1}, {0xbe58,2}, {0xbe6c,4}, {0xbe94,2}, {0xbea8,1}, {0xbeb1,4}, {0xbf42,2},
+	{0xbfc2,2}, {0xbfd6,1}, {0xbfe0,2}, {0xbff8,2}, {0xc078,1}, {0xc0ba,2}, {0xc16e,1}, {0xc17a,2},
+	{0xc236,1}, {0xc244,1}, {0xc260,2}, {0xc284,1}, {0xc28e,2}, {0xc30e,1}, {0xc34e,2}, {0xc364,2},
+	{0xc378,2}, {0xc38c,2}, {0xc3a0,1}, {0xc3b0,2}, {0xc430,4}, {0xc458,1}, {0xc462,1}, {0xc463,1},
+	{0xc670,2}, {0xc68a,2}, {0xc69e,2}, {0xc6be,2}, {0xc6d2,2}, {0xc754,4}, {0xc854,1}, {0xc85e,8},
+	{0xc8ae,1}, {0xc8b8,1}, {0xc8c2,2}, {0xc942,1}, {0xc94c,2}, {0xc960,2}, {0xc974,2}, {0xc988,4},
+	{0xc9b0,1}, {0xca3c,1}, {0xca46,2}, {0xca4c,1}, {0xca56,2}, {0xca6a,12}, {0xcae2,12}, {0xcde2,2},
+	{0xce9a,12}, {0xd1a0,1}, {0xd1a2,1}, {0xd1ac,2}, {0xd22c,1}, {0xd236,1}, {0xd240,1}, {0xd241,1},
+	{0xd24c,1}, {0xd3e6,2}, {0xd416,4}, {0xd4b6,4}, {0xd536,2}, {0xd57c,2}, {0xd580,2},
+};
+
 static uint32_t swap_ds(void) { return (uint32_t)((0x2231 + wc_reloc) * 16); }
 
 static void swap_ships(void)
 {
 	uint8_t tmp[64];
+	if (!swap_count) {
+		for (size_t i = 0; i < sizeof swap_builtin / sizeof *swap_builtin; i++) {
+			swap_table[swap_count].off = swap_builtin[i].off;
+			swap_table[swap_count++].stride = swap_builtin[i].stride;
+		}
+	}
 	for (int i = 0; i < swap_count; i++) {
 		uint32_t a = swap_ds() + swap_table[i].off, n = swap_table[i].stride;
 		memcpy(tmp, M + a, n);
@@ -737,6 +806,12 @@ static struct { uint64_t tick; int x, y, roll, kps, fire; } friend_script[64];
 static int friend_len, friend_pos, friend_off = 1;
 static uint16_t friend_state;
 uint64_t friend_shots, friend_aimed;
+static struct view_shared {
+	_Atomic int current;
+	_Atomic uint64_t when, pictures;
+	uint8_t pixels[2][320 * 200], palette[2][256 * 3];
+} *view;
+static uint64_t view_forks, view_fork_ns;
 static int friend_sign_x = 1, friend_sign_y = 1;
 
 static uint16_t ds_w(uint32_t off) { uint16_t v; memcpy(&v, M + swap_ds() + off, 2); return v; }
@@ -762,7 +837,17 @@ static void friend_guns(void)
 
 void friend_report(void)
 {
-	if (friend_len) fprintf(stderr, "wc: friend: %llu gun calls, %llu frames on target\n", (unsigned long long)friend_shots, (unsigned long long)friend_aimed);
+	if (friend_len || wc_net_on) fprintf(stderr, "wc: friend: %llu gun calls, %llu frames on target\n", (unsigned long long)friend_shots, (unsigned long long)friend_aimed);
+	const char *shot = getenv("WC_VIEW_SHOT");
+	FILE *f = shot && view ? fopen(shot, "wb") : NULL;
+	if (f) {
+		int i = atomic_load(&view->current);
+		fwrite(view->palette[i], 1, sizeof view->palette[i], f);
+		fwrite(view->pixels[i], 1, sizeof view->pixels[i], f);
+		fclose(f);
+	}
+	if (view) fprintf(stderr, "wc: view: %llu forks, %llu pictures, %llu us per fork\n", (unsigned long long)view_forks,
+		(unsigned long long)atomic_load(&view->pictures), (unsigned long long)(view_forks ? view_fork_ns / view_forks / 1000 : 0));
 }
 
 void friend_hook(uint32_t at)
@@ -782,10 +867,13 @@ void friend_hook(uint32_t at)
 			s += n + (s[n] == ',');
 		}
 	}
-	if (!friend_len || swap_active || ticks < friend_script[0].tick) return;
+	int net_x, net_y, net_roll, net_throttle = 0, net_fire;
+	const int from_net = net_friend(&net_x, &net_y, &net_roll, &net_throttle, &net_fire);
+	if (view_child) return;
+	if (!from_net && (!friend_len || swap_active || ticks < friend_script[0].tick)) return;
 	uint16_t ship;
 	memcpy(&ship, M + rd(R_SS, 2) * 16u + (uint16_t)(rd(R_SP, 2) + 4), 2);
-	if (ship != 1) return;
+	if (ship != 1 || ds_w(0x662c) != 1) return; /* only a wingman, in object 1 */
 	while (friend_pos + 1 < friend_len && ticks >= friend_script[friend_pos + 1].tick) friend_pos++;
 	if (at == FRIEND_AI) {
 		friend_state = ds_w(0xbd1a + 2);
@@ -796,8 +884,8 @@ void friend_hook(uint32_t at)
 	if (friend_off) return;
 	ds_set(0xbd1a + 2, friend_state);
 	uint32_t type = ds_w(0xbff8 + 2) * 0x6fu;
-	int x = friend_script[friend_pos].x, y = friend_script[friend_pos].y, roll = friend_script[friend_pos].roll;
-	int fire = friend_script[friend_pos].fire;
+	int x = from_net ? net_x : friend_script[friend_pos].x, y = from_net ? net_y : friend_script[friend_pos].y;
+	int roll = from_net ? net_roll : friend_script[friend_pos].roll, fire = from_net ? net_fire : friend_script[friend_pos].fire;
 	int guns_off = fire == 3;
 	if (fire == 2 || fire == 3) { /* test: stands in for a person, aiming at the nearest enemy (3: holding fire) */
 		int best = -1;
@@ -850,14 +938,103 @@ void friend_hook(uint32_t at)
 	ds_set(0xc378 + 2, (uint16_t)(-(int16_t)ds_w(type + 0x49fc) * x / 8));
 	ds_set(0xb8e2 + 2, (uint16_t)(-(int16_t)ds_w(type + 0x4a00) * roll / 8));
 	uint32_t set = (uint32_t)friend_script[friend_pos].kps * 128 / 5; /* the HUD's SET is this / 25.6 */
+	if (from_net) { /* steps of 10 kps a frame up to the ship's top speed, as FUN_13be_1567 and ovl11_07eb */
+		int32_t was = (int32_t)(ds_w(0xb9f6 + 4) | (uint32_t)ds_w(0xb9f6 + 6) << 16) + net_throttle * 256;
+		const int32_t top = ds_w(0xae60 + 2) * 256;
+		set = (uint32_t)(was < 0 ? 0 : was > top ? top : was);
+	}
 	ds_set(0xb9f6 + 4, (uint16_t)set);
 	ds_set(0xb9f6 + 6, (uint16_t)(set >> 16));
 	if (fire && ds_w(0xbb8e + 2) == 0xffff && (int16_t)ds_w(0xbe3a + 2) > 0) friend_guns();
 }
 
+/* The friend's view: each flight frame, a child process (fork, so nothing it does can touch the game
+ * here) swaps the player and the wingman in its copy of the machine, runs on for two frames, leaves
+ * the picture in shared memory and ends. The window shows the newest while they keep coming. */
+static pid_t view_pid;
+static uint64_t view_spawned;
+static int view_frames, view_stick[3];
+
+int pc_view_child(void) { return view_child; }
+
+/* In the child, before the rates become turning speeds: the friend's stick is the one that turns "the player". */
+void view_rates(void)
+{
+	if (!view_child) return;
+	ds_set(0xc3aa, (uint16_t)view_stick[1]);
+	ds_set(0xc3ac, (uint16_t)view_stick[0]);
+	ds_set(0xc3ae, (uint16_t)view_stick[2]);
+}
+
+static void view_publish(void)
+{
+	int next = !atomic_load(&view->current);
+	memcpy(view->pixels[next], M + 0xa0000, sizeof view->pixels[next]);
+	memcpy(view->palette[next], wc_palette, sizeof view->palette[next]);
+	atomic_store(&view->current, next);
+	atomic_store(&view->when, real_ns());
+	atomic_fetch_add(&view->pictures, 1);
+}
+
+static void view_spawn(void)
+{
+	if (!view) {
+		view = mmap(NULL, sizeof *view, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+		if (view == MAP_FAILED) { view = NULL; return; }
+	}
+	if (view_pid) {
+		if (waitpid(view_pid, NULL, WNOHANG) == 0) {
+			if (real_ns() - view_spawned < 1000000000u) return; /* still at it */
+			kill(view_pid, SIGKILL);
+			waitpid(view_pid, NULL, 0);
+		}
+		view_pid = 0;
+	}
+	if (ds_w(0x662c) != 1 || ds_w(0xbd1a + 2) != 12) return; /* no wingman to see from */
+	int x = 0, y = 0, roll = 0, throttle, fire;
+	net_friend(&x, &y, &roll, &throttle, &fire);
+	fflush(NULL);
+	const uint64_t before = real_ns();
+	pid_t pid = fork();
+	if (pid < 0) return;
+	if (pid) {
+		view_pid = pid;
+		view_spawned = real_ns();
+		view_fork_ns += view_spawned - before;
+		view_forks++;
+		return;
+	}
+	view_child = 1;
+	view_start = wc_icount;
+	view_stick[0] = x;
+	view_stick[1] = y;
+	view_stick[2] = roll;
+	swap_ships();
+}
+
+int pc_view_frame(uint8_t *pixels, uint8_t *palette)
+{
+	if (!view || real_ns() - atomic_load(&view->when) > 400000000u) return 0;
+	int i = atomic_load(&view->current);
+	memcpy(pixels, view->pixels[i], sizeof view->pixels[i]);
+	memcpy(palette, view->palette[i], sizeof view->palette[i]);
+	return 1;
+}
+
 /* A frame is done (in flight): wait for its slot, keeping devices and interrupts going. */
 void pc_frame(uint32_t at)
 {
+	if (view_child) {
+		if (++view_frames == 2) { /* the frame after the swap is on the screen */
+			view_publish();
+			_exit(0);
+		}
+		return;
+	}
+	if (wc_net_join) {
+		view_spawn();
+		if (view_child) return;
+	}
 	swap_step();
 	uint64_t fps = atomic_load_explicit(&flight_fps, memory_order_relaxed);
 	if (!fps) return;

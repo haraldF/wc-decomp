@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "host.h"
+#include "net.h"
 #include "wc_rt.h"
 
 enum { CENTRE = 256, RANGE = 240 };
@@ -31,6 +32,7 @@ static int clamp(int v)
 
 void pc_joystick(int x, int y, int roll, int buttons)
 {
+	if (net_capture_joystick(x, y, roll, buttons)) return;
 	atomic_store(&stick_x, clamp(x));
 	atomic_store(&stick_y, clamp(y));
 	atomic_store(&stick_roll, clamp(roll));

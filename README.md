@@ -295,6 +295,27 @@ Start a new game. In the personnel database choose Transfer and the game (`SAVEG
 Commander and Secret Missions 1, `CRUSADE.WLD` for Secret Missions 2), type `wc1` as the path, then
 click the pilot (a digit key would also land in the first name) and enter the first name.
 
+## Two players (experimental, Wing Commander 1)
+
+One player is the wing commander and plays as usual. The other watches everything and, in flight,
+flies the wingman from its own cockpit: arrow keys or stick to steer, `,` and `.` to roll, `+` and
+`-` for speed, Space or Enter for the guns. Only the commander's actions move the game on. Both need
+the same game and the same save (the start refuses otherwise), each in a folder of their own, so
+on one Mac use a copy. So far only plain UDP on a local network: nothing crosses NAT yet.
+
+`npm run recomp` on this branch builds it (the wingman's AI needs two more hooks in the generated code).
+
+```bash
+WC_NET=host:23456 out/bin/wc ../game
+```
+
+```bash
+WC_NET=join:127.0.0.1:23456 WC_NET_MUTE=1 out/bin/wc ../game-copy
+```
+
+`WC_NET_DELAY` is the input delay in 1/30 s (default 3), `WC_NET_MUTE=1` silences that window. For a
+quick test, `Origin l s1 m0` after the folder (on both) starts straight in the first mission.
+
 ## In the browser (WebAssembly)
 
 The same runtime builds with [Emscripten](https://emscripten.org) (`brew install emscripten`) into a

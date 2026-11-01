@@ -7,6 +7,7 @@
 
 #include "host.h"
 
+int pc_view_child(void);
 void sb_mix(int16_t *frames, unsigned n, unsigned out_rate, uint64_t t0);
 
 static FILE *wav;
@@ -38,7 +39,7 @@ static void wav_close(void)
 int sound_open(unsigned out_rate)
 {
 	rate = out_rate;
-	to_host = host_audio_open(rate);
+	to_host = !getenv("WC_NET_MUTE") && host_audio_open(rate); /* one PC's sound is enough when both are here */
 	const char *path = getenv("WC_WAV");
 	if (path && (wav = fopen(path, "wb"))) {
 		wav_rate = rate;
@@ -51,6 +52,7 @@ int sound_open(unsigned out_rate)
 /* 16-bit stereo frames, the first one made for emulated time t0 */
 void sound_out(int16_t *frames, unsigned count, uint64_t t0)
 {
+	if (pc_view_child()) return;
 	sb_mix(frames, count, rate, t0);
 	if (to_host) host_audio(frames, count);
 	if (wav) {

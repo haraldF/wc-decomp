@@ -25,6 +25,7 @@
  *   WC_CLOCK=x      instructions: emulated time from the instructions executed (default headless),
  *                   real: real time (default in the window)
  *   WC_JOYSTICK=0   no joystick (by default a centred one, moved by a game controller)
+ *   WC_NET=...      two players over UDP (see net.c)
  *   WC_STICK_KEYS=b:key,...  keys a flight stick's buttons press (numbered as on the stick; default
  *                   3:enter,4:tab; "none" for none), e.g. 11:tab for the afterburner */
 #include <libgen.h>
@@ -39,6 +40,7 @@
 #include <unistd.h>
 
 #include "host.h"
+#include "net.h"
 #include "wc_rt.h"
 
 void pc_init(int tty);
@@ -144,6 +146,7 @@ static unsigned entry_seg;
 
 static void game(void)
 {
+	net_connect();
 	run(entry_seg * 16 + wc_program.ip);
 	fprintf(stderr, "wc: entry point returned\n");
 	cpu_report(stderr);
@@ -192,6 +195,7 @@ int main(int argc, char **argv)
 
 	load_image(dir, load_seg);
 	setup_process(load_seg, argc > 2 ? argc - 2 : 0, argv + 2);
+	net_init();
 	pc_init(!host_open());
 
 	const char *watch = getenv("WC_WATCH");

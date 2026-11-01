@@ -199,10 +199,14 @@ enum { FRAME_COPY = 0x77454 };
 void joystick_roll(uint16_t var);
 
 void friend_hook(uint32_t at);
+void view_rates(void);
 
 void wc_hook(uint32_t at)
 {
-	if (at == wc_program.rates) joystick_roll(wc_program.roll);
+	if (at == wc_program.rates) {
+		joystick_roll(wc_program.roll);
+		view_rates();
+	}
 	else friend_hook(at);
 }
 

@@ -486,6 +486,28 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   Enter from 15000, pilot row 1 `15450:@120.44,15500:+lmb,15506:-lmb`, first name from 16000: the
   quarters ~600 ticks later. Checked by saving (savegame.wc2: 58 missions, 594 kills) and into flight.
 
+## Two players (runtime/net.c, branch cockpit-swap-experiment; Wing Commander 1 only)
+
+- Lockstep over UDP: both PCs run the whole game on the instruction clock, paced to real time
+  (`net_pace`); inputs wait for blocks of 1/30 s of emulated time and are applied at the same
+  instruction on both. `pc_mouse`, `pc_joystick` and `key_out` hand local input to net.c.
+- Anything from the host's world breaks it: speed keys are off, DOS's and the BIOS's time and file
+  dates come from `net_time`, and the handshake compares WC.EXE, WINGCMDR.CFG, SAVEGAME.WLD and the
+  environment that matters. Machine hashes (first 640 KB + registers) go over the wire once a second.
+- Objects are parallel arrays by DS offset; 0 is the player, 1 the wingman (DS:662c), state
+  `bd1a` 12 means normal flight. Slots: positions `a9c2`, orientation `aeb6`/`b1b6`/`b4b6`, type
+  `bff8`, side `be94`, set speed `b9f6` (long, HUD kps * 25.6), top speed `ae60` (* 256), guns'
+  energy `be3a`, shields `c988`, armor `c85e`. `swap_builtin` lists the arrays, found by pattern in
+  the decompiled code, so some may be wrong or missing.
+- AI off: at ovl09_28d0's entry (hook) the wingman's state is set to one its switch ignores and put
+  back at ovl11_0606's entry, where the stick goes in as target turning speeds. Guns: ovl11_2e76(ship).
+  Nav points check ship 0 only (FUN_13be_1ff3(0)), so the friend can't trigger them.
+- The friend's cockpit is a `fork()` per flight frame on their side: the child swaps objects 0 and
+  1, runs two frames, publishes the picture in shared memory and exits, so it can't touch the game.
+  It must not reach host code holding locks (`vga_poll`, sound, `poll_keyboard` return early) and
+  leaves at DOS file calls. No `fork()` in the browser: there, copy and restore (`WC_SWAP_MODE=fork`).
+- `Origin l s1 m0` launches a mission directly (`l`), handy for tests; `-k` is invulnerability.
+
 ## Conventions
 
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in

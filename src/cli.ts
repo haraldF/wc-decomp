@@ -47,13 +47,13 @@ const { positionals, values } = parseArgs({
 // dir: the game folder (by default; --exe names another). rates 0: not found yet, no twist.
 // loadSeg: where the runtime loads it by default (WC_LOAD_SEG).
 interface Game {
-  exe: string; dir: string; sha256: string; out: string; entries: string; rates: number; roll: number; cycles: number;
+  exe: string; dir: string; sha256: string; out: string; entries: string; rates: number; hooks?: number[]; roll: number; cycles: number;
   loadSeg: number;
 }
 const GAMES: Record<string, Game> = {
   // Wing Commander with the Secret Missions 1 (GOG)
   wc: { exe: "WC.EXE", dir: "../game", sha256: "c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca", out: "", entries: "entries.txt",
-    rates: 0x1482e /* 13be:0c4e */, roll: 0xc3ae, cycles: 8334, loadSeg: 0x200 },
+    rates: 0x1482e /* 13be:0c4e */, hooks: [0x3aa20 /* the AI, ovl09_28d0 */, 0x3b496 /* turning, ovl11_0606 */], roll: 0xc3ae, cycles: 8334, loadSeg: 0x200 },
   // The Secret Missions 2: Crusade, a program of its own
   sm2: { exe: "SM2.EXE", dir: "../game", sha256: "900f379b04c7b6f11ae08cf84ca278b9260df8ed81d038cdb3907bbf136cd84d", out: "sm2", entries: "entries-sm2.txt",
     rates: 0x147b8 /* 13bb:0c08 */, roll: 0xc694, cycles: 8334, loadSeg: 0x200 },
@@ -130,7 +130,8 @@ const doRecomp = async (): Promise<void> => {
     projectDir, projectName,
     "-process", path.basename(flatExe), "-noanalysis", "-readOnly",
     "-scriptPath", scriptPath,
-    "-postScript", "WcRecomp.java", manifestPath, recompDir, entriesFile, game.rates ? game.rates.toString(16) : "",
+    "-postScript", "WcRecomp.java", manifestPath, recompDir, entriesFile,
+    [...(game.rates ? [game.rates] : []), ...(game.hooks ?? [])].map((h) => h.toString(16)).join(","),
   ]);
   const drivers = readDrivers();
   for (const d of drivers) {

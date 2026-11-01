@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "host.h"
+#include "net.h"
 #include "wc_rt.h"
 
 /* Events from the host, on its thread: a single-producer, single-consumer ring. */
@@ -25,8 +26,8 @@ static void post(int x, int y, int buttons, int relative)
 }
 
 void pc_warp_end(void);
-void pc_mouse(int x, int y, int buttons) { if (buttons) pc_warp_end(); post(x, y, buttons, 0); }
-void pc_mouse_move(int dx, int dy, int buttons) { if (buttons) pc_warp_end(); post(dx, dy, buttons, 1); }
+void pc_mouse(int x, int y, int buttons) { if (net_capture_mouse(0, x, y, buttons)) return; if (buttons) pc_warp_end(); post(x, y, buttons, 0); }
+void pc_mouse_move(int dx, int dy, int buttons) { if (net_capture_mouse(1, dx, dy, buttons)) return; if (buttons) pc_warp_end(); post(dx, dy, buttons, 1); }
 
 static int x, y = 100, min_x, max_x = 639, min_y, max_y = 199;
 static uint8_t buttons;     /* held now */
