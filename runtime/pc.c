@@ -641,7 +641,8 @@ static struct {
 	int irq_pending, script_pos, script_mx, script_my, script_buttons, pacing;
 } swap_saved;
 
-/* The game's per-object arrays, by their DS offset and element size (from the decompiled code). */
+/* The game's per-object arrays, by their DS offset and element size (from the decompiled code).
+ * Not d1a2, the pilot: radio messages go by it, and only a wingman's are loaded. */
 static const struct { uint16_t off, stride; } swap_builtin[] = {
 	{0x9562,2}, {0x95ca,2}, {0x96b6,8}, {0x98ca,2}, {0x98ea,4}, {0x9a90,1}, {0x9af0,4}, {0x9b1e,12},
 	{0x9c86,8}, {0x9e18,2}, {0x9e2e,2}, {0x9e66,4}, {0x9eb4,4}, {0xa9a2,2}, {0xa9c2,12}, {0xacc4,2},
@@ -655,7 +656,7 @@ static const struct { uint16_t off, stride; } swap_builtin[] = {
 	{0xc670,2}, {0xc68a,2}, {0xc69e,2}, {0xc6be,2}, {0xc6d2,2}, {0xc754,4}, {0xc854,1}, {0xc85e,8},
 	{0xc8ae,1}, {0xc8b8,1}, {0xc8c2,2}, {0xc942,1}, {0xc94c,2}, {0xc960,2}, {0xc974,2}, {0xc988,4},
 	{0xc9b0,1}, {0xca3c,1}, {0xca46,2}, {0xca4c,1}, {0xca56,2}, {0xca6a,12}, {0xcae2,12}, {0xcde2,2},
-	{0xce9a,12}, {0xd1a0,1}, {0xd1a2,1}, {0xd1ac,2}, {0xd22c,1}, {0xd236,1}, {0xd240,1}, 
+	{0xce9a,12}, {0xd1a0,1}, {0xd1ac,2}, {0xd22c,1}, {0xd236,1}, {0xd240,1}, 
 	{0xd24c,1}, {0xd3e6,2}, {0xd416,4}, {0xd4b6,4}, {0xd536,2}, {0xd57c,2}, {0xd580,2},
 };
 
@@ -870,13 +871,19 @@ void friend_hook(uint32_t at)
 	}
 	int net_x, net_y, net_roll, net_throttle = 0, net_fire;
 	const int from_net = net_friend(&net_x, &net_y, &net_roll, &net_throttle, &net_fire);
-	if (view_child) return;
 	uint16_t ship;
 	memcpy(&ship, M + rd(R_SS, 2) * 16u + (uint16_t)(rd(R_SP, 2) + 4), 2);
 	if (ship != 1) return;
 	if (at == FRIEND_TURN && friend_took) { /* even if they stopped flying since the AI's turn */
 		ds_set(0xbd1a + 2, friend_state);
 		friend_took = 0;
+	}
+	if (view_child) { /* there the commander's ship is in this place: no AI, whose chatter would show */
+		if (at == FRIEND_AI && (friend_state = ds_w(0xbd1a + 2)) == 12) {
+			ds_set(0xbd1a + 2, 14);
+			friend_took = 1;
+		}
+		return;
 	}
 	if (!from_net && (!friend_len || swap_active || ticks < friend_script[0].tick)) return;
 	if (ds_w(0x662c) != 1) return; /* only a wingman, in object 1 */
@@ -988,6 +995,12 @@ void view_rates(void)
 
 static void view_publish(void)
 {
+	if (getenv("WC_VIEW_LOG")) /* a radio message without text, in this child's memory */
+		for (uint32_t a = 0; a + 8 < 0xa0000; a++)
+			if (!memcmp(M + a, ": (null)", 8)) {
+				fprintf(stderr, "wc: view: radio message without text, tick %llu\n", (unsigned long long)ticks);
+				break;
+			}
 	int next = !atomic_load(&view->current);
 	memcpy(view->pixels[next], M + 0xa0000, sizeof view->pixels[next]);
 	memcpy(view->palette[next], wc_palette, sizeof view->palette[next]);
@@ -1032,6 +1045,7 @@ static void view_spawn(void)
 	view_stick[1] = y;
 	view_stick[2] = roll;
 	swap_ships();
+	if (getenv("WC_VIEW_RADIO")) M[swap_ds() + 0xd236 + 1] = (uint8_t)atoi(getenv("WC_VIEW_RADIO")); /* test: object 1 says this */
 	if (!flying) { /* the AI flies: its turning speeds as the stick that would give them (FUN_13be_0c4e) */
 		uint32_t type = ds_w(0xbff8) * 0x6fu;
 		const int pitch = (int16_t)ds_w(type + 0x49fe), yaw = (int16_t)ds_w(type + 0x49fc), spin = (int16_t)ds_w(type + 0x4a00);
