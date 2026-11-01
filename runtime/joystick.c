@@ -39,6 +39,15 @@ void pc_joystick(int x, int y, int roll, int buttons)
 	atomic_store(&stick_buttons, buttons);
 }
 
+/* The friend's view (pc.c): the commander's stick stays out of it. */
+void joystick_view_reset(void)
+{
+	atomic_store(&stick_x, 0);
+	atomic_store(&stick_y, 0);
+	atomic_store(&stick_roll, 0);
+	atomic_store(&stick_buttons, 0);
+}
+
 static int is_present(void)
 {
 	if (present < 0) {

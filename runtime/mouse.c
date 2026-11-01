@@ -96,6 +96,13 @@ static void drain(void)
 	atomic_store_explicit(&events_head, head, memory_order_release);
 }
 
+/* The friend's view (pc.c): the commander's mouse stays out of it. */
+void mouse_view_reset(void)
+{
+	atomic_store(&events_head, atomic_load(&events_tail));
+	buttons = clicked = short_click = 0;
+}
+
 void mouse_int(uint32_t at)
 {
 	uint16_t ax = (uint16_t)rd(R_AX, 2), bx = (uint16_t)rd(R_BX, 2), cx = (uint16_t)rd(R_CX, 2),

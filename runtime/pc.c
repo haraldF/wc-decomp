@@ -642,10 +642,10 @@ static struct {
 } swap_saved;
 
 /* The game's per-object arrays, by their DS offset and element size (from the decompiled code).
- * Not d1a2, the pilot: radio messages go by it, and only a wingman's are loaded. */
+ * Not d1a2, the pilot: radio messages go by it, and only a wingman's are loaded. Nothing below
+ * a9c2 either but the few that go by object (9e18, 9e2e, a9a2): the rest are other tables. */
 static const struct { uint16_t off, stride; } swap_builtin[] = {
-	{0x9562,2}, {0x95ca,2}, {0x96b6,8}, {0x98ca,2}, {0x98ea,4}, {0x9a90,1}, {0x9af0,4}, {0x9b1e,12},
-	{0x9c86,8}, {0x9e18,2}, {0x9e2e,2}, {0x9e66,4}, {0x9eb4,4}, {0xa9a2,2}, {0xa9c2,12}, {0xacc4,2},
+	{0x9e18,2}, {0x9e2e,2}, {0xa9a2,2}, {0xa9c2,12}, {0xacc4,2},
 	{0xad44,2}, {0xadc4,12}, {0xae3c,1}, {0xae4c,2}, {0xae60,2}, {0xae75,1}, {0xaeb6,12},
 	{0xb1b6,12}, {0xb4b6,12}, {0xb7b6,2}, {0xb7ca,2}, {0xb84a,1}, {0xb862,2}, {0xb8e2,2}, {0xb8f6,2},
 	{0xb976,2}, {0xb9f6,4}, {0xbb02,2}, {0xbb8e,2}, {0xbd0e,1}, {0xbd1a,2}, {0xbd9a,2}, {0xbe26,2},
@@ -978,6 +978,8 @@ void friend_hook(uint32_t at)
 /* The friend's view: each flight frame, a child process (fork, so nothing it does can touch the game
  * here) swaps the player and the wingman in its copy of the machine, runs on for two frames, leaves
  * the picture in shared memory and ends. The window shows the newest while they keep coming. */
+void mouse_view_reset(void);
+void joystick_view_reset(void);
 static pid_t view_pid;
 static uint64_t view_spawned;
 static int view_frames, view_stick[3];
@@ -991,6 +993,9 @@ void view_rates(void)
 	ds_set(0xc3aa, (uint16_t)view_stick[1]);
 	ds_set(0xc3ac, (uint16_t)view_stick[0]);
 	ds_set(0xc3ae, (uint16_t)view_stick[2]);
+	ds_set(0x00c6, 0); /* no mouse steering: its pointer is the commander's */
+	M[swap_ds() + 0x6609] = 0; /* nor their keys */
+	M[swap_ds() + 0x660a] = 0;
 }
 
 static void view_publish(void)
@@ -1041,6 +1046,8 @@ static void view_spawn(void)
 	}
 	view_child = 1;
 	view_start = wc_icount;
+	mouse_view_reset();
+	joystick_view_reset();
 	view_stick[0] = x;
 	view_stick[1] = y;
 	view_stick[2] = roll;
