@@ -235,3 +235,19 @@ void ems_int(uint32_t at)
 			bx, dx, rd(R_AH, 1), rd(R_BX, 2), rd(R_DX, 2));
 	}
 }
+
+/* Experiment (WC_SWAP_*, pc.c): keep or put back the store and the mapping. */
+void ems_snapshot(int restore)
+{
+	static uint8_t *saved;
+	static uint16_t saved_mapped[PHYS];
+	if (!store) return;
+	if (!saved) saved = malloc((size_t)PAGES * PAGE);
+	if (restore) {
+		memcpy(store, saved, (size_t)PAGES * PAGE);
+		memcpy(mapped, saved_mapped, sizeof mapped);
+	} else {
+		memcpy(saved, store, (size_t)PAGES * PAGE);
+		memcpy(saved_mapped, mapped, sizeof mapped);
+	}
+}

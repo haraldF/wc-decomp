@@ -395,6 +395,7 @@ static void poll_keyboard(void)
 		if (how == 'q') {
 			fflush(stdout);
 			fprintf(stderr, "wc: quit by WC_KEYS at tick %llu\n", (unsigned long long)ticks);
+			{ void friend_report(void); friend_report(); }
 			cpu_report(stderr);
 			wc_dump_memory("quit by WC_KEYS");
 			host_exit(0);
@@ -570,9 +571,294 @@ void irq_poll(uint32_t at)
 	deliver(at);
 }
 
+/* Experiment (WC_SWAP_*): put the player (object 0) and the wingman (object 1) in each other's place
+ * in the game's per-object arrays at flight frame WC_SWAP_AT.
+ *   WC_SWAP_TABLE=file  lines "offset stride" (hex): the arrays, by their DS offset
+ *   WC_SWAP_MODE=once   stay swapped from there on
+ *                fork   swap, run on for two frames, save the picture (prefix-fork.raw), and put
+ *                       the machine back as it was, for a second view of the same game
+ *   WC_SWAP_UNTIL=n     fork at every frame from WC_SWAP_AT to this one
+ *   WC_SWAP_SHOT=prefix pictures of the frames around it (prefix-<frame>.raw, prefix-fork<frame>.raw)
+ * Every frame logs a hash of the flight data, to compare runs with. */
+void ems_snapshot(int restore);
+extern uint8_t wc_palette[256][3];
+static struct { uint16_t off, stride; } swap_table[256];
+static int swap_count, swap_at = -1, swap_fork, swap_frame, swap_active, swap_every, swap_until;
+static const char *swap_shot;
+static uint8_t (*swap_m), swap_r[sizeof R];
+static uint32_t *swap_rets;
+static int swap_ret_depth;
+static uintptr_t swap_native_sp;
+static struct {
+	uint64_t icount, irq_count[8], clock_skip_ns, pit_next_ns, pit_period_ns, pit_start_ns;
+	uint64_t ticks, script_jrelease, throttle_start_ns, throttle_start_icount, next_frame_ns, frame_icount;
+	uint8_t pic_mask, pic_in_service, kbd_queue[64], kbd_head, kbd_tail, kbd_data, script_held;
+	int irq_pending, script_pos, script_mx, script_my, script_buttons, pacing;
+} swap_saved;
+
+static uint32_t swap_ds(void) { return (uint32_t)((0x2231 + wc_reloc) * 16); }
+
+static void swap_ships(void)
+{
+	uint8_t tmp[64];
+	for (int i = 0; i < swap_count; i++) {
+		uint32_t a = swap_ds() + swap_table[i].off, n = swap_table[i].stride;
+		memcpy(tmp, M + a, n);
+		memcpy(M + a, M + a + n, n);
+		memcpy(M + a + n, tmp, n);
+	}
+}
+
+static void swap_picture(const char *what)
+{
+	char path[1024];
+	snprintf(path, sizeof path, "%s-%s.raw", swap_shot, what);
+	FILE *f = fopen(path, "wb");
+	if (f) {
+		fwrite(wc_palette, 1, sizeof wc_palette, f);
+		fwrite(M + 0xa0000, 1, 320 * 200, f);
+		fclose(f);
+	}
+}
+
+#define SWAP_STATE(X) X(irq_count) X(clock_skip_ns) X(pit_next_ns) X(pit_period_ns) X(pit_start_ns) \
+	X(ticks) X(script_jrelease) X(throttle_start_ns) X(throttle_start_icount) X(next_frame_ns) X(frame_icount) \
+	X(pic_mask) X(pic_in_service) X(kbd_queue) X(kbd_head) X(kbd_tail) X(kbd_data) X(script_held) \
+	X(script_pos) X(script_mx) X(script_my) X(script_buttons) X(pacing)
+
+static void swap_save(void)
+{
+	if (!swap_m) {
+		swap_m = malloc(sizeof M);
+		swap_rets = malloc(WC_RET_STACK * sizeof *swap_rets);
+	}
+	memcpy(swap_m, M, sizeof M);
+	memcpy(swap_r, R, sizeof R);
+	memcpy(swap_rets, wc_ret_stack, wc_ret_depth * sizeof *swap_rets);
+	swap_ret_depth = wc_ret_depth;
+	swap_saved.icount = wc_icount;
+	swap_saved.irq_pending = wc_irq_pending;
+#define X(v) memcpy(&swap_saved.v, &v, sizeof v);
+	SWAP_STATE(X)
+#undef X
+	ems_snapshot(0);
+}
+
+static void swap_restore(void)
+{
+	memcpy(M, swap_m, sizeof M);
+	memcpy(R, swap_r, sizeof R);
+	wc_ret_depth = swap_ret_depth;
+	memcpy(wc_ret_stack, swap_rets, wc_ret_depth * sizeof *swap_rets);
+	wc_icount = swap_saved.icount;
+	wc_irq_pending = swap_saved.irq_pending;
+#define X(v) memcpy(&v, &swap_saved.v, sizeof v);
+	SWAP_STATE(X)
+#undef X
+	ems_snapshot(1);
+}
+
+static void swap_step(void)
+{
+	static int init;
+	if (!init) {
+		init = 1;
+		const char *at = getenv("WC_SWAP_AT"), *table = getenv("WC_SWAP_TABLE"), *mode = getenv("WC_SWAP_MODE");
+		swap_shot = getenv("WC_SWAP_SHOT");
+		swap_fork = mode && !strcmp(mode, "fork");
+		if (at) swap_at = atoi(at);
+		const char *until = getenv("WC_SWAP_UNTIL"); /* fork at every frame up to this one */
+		if (until) { swap_every = 1; swap_until = atoi(until); }
+		FILE *f = table ? fopen(table, "r") : NULL;
+		unsigned off, stride;
+		while (f && swap_count < 256 && fscanf(f, "%x %x", &off, &stride) == 2) {
+			swap_table[swap_count].off = (uint16_t)off;
+			swap_table[swap_count++].stride = (uint16_t)stride;
+		}
+		if (f) fclose(f);
+	}
+	uintptr_t here = (uintptr_t)__builtin_frame_address(0);
+	if (swap_active == 2) { /* the fork's second frame copy is on screen: the view from the wingman */
+		if (swap_shot) {
+			char what[32];
+			snprintf(what, sizeof what, "fork%d", swap_frame - 2);
+			swap_picture(what);
+		}
+		int same = here == swap_native_sp && wc_ret_depth == swap_ret_depth
+			&& !memcmp(wc_ret_stack, swap_rets, wc_ret_depth * sizeof *swap_rets);
+		if (!same) fprintf(stderr, "wc: swap: other call chain at frame %d (native sp %d, depth %d/%d)\n",
+			swap_frame, here == swap_native_sp, wc_ret_depth, swap_ret_depth);
+		swap_restore();
+		swap_frame = swap_at + 1;
+		swap_at = swap_every && swap_frame <= swap_until ? swap_frame : -1;
+		swap_active = 0;
+	} else if (swap_active == 1) {
+		swap_active = 2;
+		swap_frame++;
+	} else {
+		if (swap_frame == swap_at) {
+			if (swap_fork) {
+				swap_save();
+				swap_native_sp = here;
+				swap_ships();
+				if (getenv("WC_SWAP_HURT")) { /* test: the wingman's damage, in the fork only (object 0 there) */
+					static const int16_t hurt[] = { 10, 25, 5, 12, 20, 8 }; /* shields fore, aft; armor x 4 */
+					memcpy(M + swap_ds() + 0xc988, hurt, 4);
+					memcpy(M + swap_ds() + 0xc85e, hurt + 2, 8);
+				}
+				swap_active = 1;
+			} else {
+				swap_ships();
+				fprintf(stderr, "wc: swap: %d arrays swapped at frame %d, tick %llu\n", swap_count, swap_frame, (unsigned long long)ticks);
+			}
+		}
+		swap_frame++;
+	}
+	if (!swap_active && getenv("WC_SWAP_TABLE")) {
+		uint64_t h = 0xcbf29ce484222325u;
+		for (uint32_t a = swap_ds() + 0x9000; a < swap_ds() + 0xe000; a++) h = (h ^ M[a]) * 0x100000001b3u;
+		fprintf(stderr, "wc: frame %d tick %llu icount %llu hash %016llx\n", swap_frame, (unsigned long long)ticks,
+			(unsigned long long)wc_icount, (unsigned long long)h);
+		if (swap_shot) {
+			char what[32];
+			snprintf(what, sizeof what, "%d", swap_frame);
+			swap_picture(what);
+		}
+	}
+}
+
+/* Experiment (WC_FRIEND): a second player flies the wingman (object 1) instead of its AI.
+ * WC_FRIEND=tick:x.y.roll.kps.fire,... from that tick on (x, y, roll -8..8; fire 0 or 1); the first
+ * entry's tick is when the AI hands over. cli.ts's hooks (here patched into a copy of the generated
+ * code) run at the entries of the AI (ovl09_28d0) and of the turning routine (ovl11_0606). */
+enum { FRIEND_AI = 0x3aa20, FRIEND_TURN = 0x3b496, GUNS = 0x3dd06, OVL11_SEG = 0x3ae9 };
+void run_code(uint32_t code);
+static struct { uint64_t tick; int x, y, roll, kps, fire; } friend_script[64];
+static int friend_len, friend_pos, friend_off = 1;
+static uint16_t friend_state;
+uint64_t friend_shots, friend_aimed;
+static int friend_sign_x = 1, friend_sign_y = 1;
+
+static uint16_t ds_w(uint32_t off) { uint16_t v; memcpy(&v, M + swap_ds() + off, 2); return v; }
+static void ds_set(uint32_t off, uint16_t v) { memcpy(M + swap_ds() + off, &v, 2); }
+
+/* The guns, called as the player's Space key does (FUN_13be_0c0a), with the ship's number. */
+static void friend_guns(void)
+{
+	static uint8_t saved[sizeof R];
+	memcpy(saved, R, sizeof R);
+	uint16_t sp = (uint16_t)rd(R_SP, 2), ss = (uint16_t)rd(R_SS, 2);
+	uint32_t stack = ss * 16u;
+	uint16_t frame[3] = { 0, (uint16_t)rd(R_CS, 2), 1 }; /* ip, cs, the argument */
+	sp -= 6;
+	memcpy(M + stack + sp, frame, 6);
+	wr(R_SP, 2, sp);
+	wr(R_CS, 2, (uint64_t)(OVL11_SEG + wc_reloc) & 0xffff);
+	run_code(GUNS);
+	memcpy(R, saved, sizeof R);
+	friend_shots++;
+	if (getenv("WC_FRIEND_LOG")) fprintf(stderr, "wc: friend: guns at frame %d tick %llu\n", swap_frame, (unsigned long long)ticks);
+}
+
+void friend_report(void)
+{
+	if (friend_len) fprintf(stderr, "wc: friend: %llu gun calls, %llu frames on target\n", (unsigned long long)friend_shots, (unsigned long long)friend_aimed);
+}
+
+void friend_hook(uint32_t at)
+{
+	static int init;
+	if (!init) {
+		init = 1;
+		const char *s = getenv("WC_FRIEND");
+		const char *sign = getenv("WC_FRIEND_SIGN");
+		if (sign) sscanf(sign, "%d,%d", &friend_sign_x, &friend_sign_y);
+		while (s && *s && friend_len < 64) {
+			int n = 0;
+			unsigned long long t;
+			if (sscanf(s, "%llu:%d.%d.%d.%d.%d%n", &t, &friend_script[friend_len].x, &friend_script[friend_len].y,
+				&friend_script[friend_len].roll, &friend_script[friend_len].kps, &friend_script[friend_len].fire, &n) != 6) break;
+			friend_script[friend_len++].tick = t;
+			s += n + (s[n] == ',');
+		}
+	}
+	if (!friend_len || swap_active || ticks < friend_script[0].tick) return;
+	uint16_t ship;
+	memcpy(&ship, M + rd(R_SS, 2) * 16u + (uint16_t)(rd(R_SP, 2) + 4), 2);
+	if (ship != 1) return;
+	while (friend_pos + 1 < friend_len && ticks >= friend_script[friend_pos + 1].tick) friend_pos++;
+	if (at == FRIEND_AI) {
+		friend_state = ds_w(0xbd1a + 2);
+		friend_off = friend_state != 12;
+		if (!friend_off) ds_set(0xbd1a + 2, 14); /* a state the AI's switch doesn't handle: no AI */
+		return;
+	}
+	if (friend_off) return;
+	ds_set(0xbd1a + 2, friend_state);
+	uint32_t type = ds_w(0xbff8 + 2) * 0x6fu;
+	int x = friend_script[friend_pos].x, y = friend_script[friend_pos].y, roll = friend_script[friend_pos].roll;
+	int fire = friend_script[friend_pos].fire;
+	int guns_off = fire == 3;
+	if (fire == 2 || fire == 3) { /* test: stands in for a person, aiming at the nearest enemy (3: holding fire) */
+		int best = -1;
+		double bestd = 1e30, rx = 0, ry = 0, rz = 0;
+		const int32_t *me = (const int32_t *)(M + swap_ds() + 0xa9c2 + 12);
+		for (int i = 2; i < 10; i++) {
+			if (ds_w(0xbd1a + 2 * i) < 11 || ds_w(0xbe94 + 2 * i) != 1) continue; /* alive, the enemy's side */
+			const int32_t *p = (const int32_t *)(M + swap_ds() + 0xa9c2 + 12 * i);
+			double dx = p[0] - me[0], dy = p[1] - me[1], dz = p[2] - me[2], d = dx * dx + dy * dy + dz * dz;
+			if (d < bestd) { bestd = d; best = i; rx = dx; ry = dy; rz = dz; }
+		}
+		fire = 0;
+		if (best >= 0) {
+			const int32_t *ax = (const int32_t *)(M + swap_ds() + 0xaeb6 + 12), *ay = (const int32_t *)(M + swap_ds() + 0xb1b6 + 12),
+				*az = (const int32_t *)(M + swap_ds() + 0xb4b6 + 12);
+			double px = rx * ax[0] + ry * ax[1] + rz * ax[2], py = ry * ay[1] + rx * ay[0] + rz * ay[2],
+				pz = rx * az[0] + ry * az[1] + rz * az[2];
+			double a = pz > 0 ? pz : 1e-9;
+			x = (int)(friend_sign_x * 8 * (px / a) * 6);
+			y = (int)(friend_sign_y * 8 * (py / a) * 6);
+			if (pz <= 0) x = friend_sign_x * (px >= 0 ? 8 : -8);
+			if (x > 8) x = 8;
+			if (x < -8) x = -8;
+			if (y > 8) y = 8;
+			if (y < -8) y = -8;
+			double len2 = px * px + py * py;
+			fire = pz > 0 && len2 < pz * pz * 0.0025 && bestd < 4e12; /* within ~3 degrees, in range */
+			friend_aimed += fire;
+			if (guns_off) fire = 0;
+		}
+	} else if (fire == 4) { /* test: flies to a point, WC_FRIEND_GOTO=x,y,z */
+		double g[3] = { 0, 0, 0 };
+		const char *to = getenv("WC_FRIEND_GOTO");
+		if (to) sscanf(to, "%lf,%lf,%lf", &g[0], &g[1], &g[2]);
+		const int32_t *me = (const int32_t *)(M + swap_ds() + 0xa9c2 + 12);
+		double rx = g[0] * 65536 - me[0], ry = g[1] * 65536 - me[1], rz = g[2] * 65536 - me[2];
+		const int32_t *ax = (const int32_t *)(M + swap_ds() + 0xaeb6 + 12), *ay = (const int32_t *)(M + swap_ds() + 0xb1b6 + 12),
+			*az = (const int32_t *)(M + swap_ds() + 0xb4b6 + 12);
+		double px = rx * ax[0] + ry * ax[1] + rz * ax[2], py = rx * ay[0] + ry * ay[1] + rz * ay[2], pz = rx * az[0] + ry * az[1] + rz * az[2];
+		double a = pz > 0 ? pz : 1e-9;
+		x = (int)(48 * px / a);
+		y = (int)(48 * py / a);
+		if (pz <= 0) x = px >= 0 ? 8 : -8;
+		x = x > 8 ? 8 : x < -8 ? -8 : x;
+		y = y > 8 ? 8 : y < -8 ? -8 : y;
+		fire = 0;
+	}
+	/* as FUN_13be_0c4e turns the player's stick into turning speeds */
+	ds_set(0xc6be + 2, (uint16_t)((int16_t)ds_w(type + 0x49fe) * y / 8));
+	ds_set(0xc378 + 2, (uint16_t)(-(int16_t)ds_w(type + 0x49fc) * x / 8));
+	ds_set(0xb8e2 + 2, (uint16_t)(-(int16_t)ds_w(type + 0x4a00) * roll / 8));
+	uint32_t set = (uint32_t)friend_script[friend_pos].kps * 128 / 5; /* the HUD's SET is this / 25.6 */
+	ds_set(0xb9f6 + 4, (uint16_t)set);
+	ds_set(0xb9f6 + 6, (uint16_t)(set >> 16));
+	if (fire && ds_w(0xbb8e + 2) == 0xffff && (int16_t)ds_w(0xbe3a + 2) > 0) friend_guns();
+}
+
 /* A frame is done (in flight): wait for its slot, keeping devices and interrupts going. */
 void pc_frame(uint32_t at)
 {
+	swap_step();
 	uint64_t fps = atomic_load_explicit(&flight_fps, memory_order_relaxed);
 	if (!fps) return;
 	uint64_t now = pc_now_ns(), period = 1000000000u / fps;
