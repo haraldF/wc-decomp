@@ -3,6 +3,7 @@
  *   WC_NET=host:port        the wing commander: waits for the friend
  *   WC_NET=join:host:port   the friend: flies the wingman, watches everything else
  *   WC_NET_DELAY=n          input delay in blocks of 1/30 s (default 3)
+ *   WC_NET_WATCH=1          the friend starts by watching the AI fly the wingman; W switches, in flight too
  *   WC_NET_LOSS=percent     drop this share of the packets sent, for testing
  *   WC_NET_LOG=1            print the machine's hash once a second, to compare two runs
  *   WC_NET_MUTE=1           no sound from this one, with both on one PC
@@ -74,7 +75,8 @@ static _Thread_local int applying;
 /* the friend's controls: what they hold now, and what is in force in this block */
 static uint8_t held[128];
 static int stick_x, stick_y, stick_roll, stick_fire;
-static int f_x, f_y, f_roll, f_throttle, f_fire;
+static int f_x, f_y, f_roll, f_throttle, f_fire, f_watch;
+static int watch_wanted;
 
 static uint64_t mono_ns(void)
 {
@@ -131,6 +133,7 @@ void net_init(void)
 	const char *l = getenv("WC_NET_LOSS");
 	if (l) loss = atoi(l);
 	net_log = getenv("WC_NET_LOG") != NULL;
+	watch_wanted = getenv("WC_NET_WATCH") != NULL;
 
 	char host[256] = "";
 	int port = 0;
@@ -310,7 +313,13 @@ static int clamp8(int v)
 static void friend_event(const struct event *e)
 {
 	switch (e->type) {
-	case E_KEY: held[e->code & 0x7f] = !(e->code & 0x80); break;
+	case E_KEY:
+		if (e->code == 0x11 && !held[0x11]) { /* W: the AI flies, or they do */
+			watch_wanted = !watch_wanted;
+			fprintf(stderr, "wc: net: %s\n", watch_wanted ? "watching the wingman fly" : "you fly the wingman");
+		}
+		held[e->code & 0x7f] = !(e->code & 0x80);
+		break;
 	case E_JOYSTICK:
 		stick_x = e->a * 8 / 1000;
 		stick_y = -e->b * 8 / 1000; /* stick forward is the up arrow */
@@ -343,7 +352,7 @@ static void commit_local(uint32_t number, uint64_t hash, uint32_t hash_block)
 		s->y = (int8_t)clamp8(held[0x48] ? 8 : held[0x50] ? -8 : stick_y);
 		s->roll = (int8_t)clamp8(held[0x34] || held[0x53] ? 8 : held[0x33] || held[0x52] ? -8 : stick_roll);
 		s->throttle = (int8_t)(held[0x0d] ? 1 : held[0x0c] ? -1 : 0);
-		s->fire = held[0x39] || held[0x1c] || stick_fire;
+		s->fire = (held[0x39] || held[0x1c] || stick_fire) | (watch_wanted ? 2 : 0);
 	}
 	local_top = number + 1;
 }
@@ -365,7 +374,8 @@ static void apply(const struct block *commander, const struct block *friend)
 	f_y = friend->y;
 	f_roll = friend->roll;
 	f_throttle = friend->throttle;
-	f_fire = friend->fire;
+	f_fire = friend->fire & 1;
+	f_watch = (friend->fire & 2) != 0; /* in the friend's block, so at the same moment on both PCs */
 }
 
 /* The machine as both PCs must have it. Video memory is left out: the friend's isn't shown anyway. */
@@ -468,7 +478,7 @@ int net_capture_joystick(int x, int y, int roll, int buttons)
 
 int net_friend(int *x, int *y, int *roll, int *throttle, int *fire)
 {
-	if (!wc_net_on || peer_gone) return 0;
+	if (!wc_net_on || peer_gone || f_watch) return 0;
 	*x = f_x;
 	*y = f_y;
 	*roll = f_roll;

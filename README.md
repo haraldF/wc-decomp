@@ -313,6 +313,9 @@ WC_NET=host:23456 out/bin/wc ../game
 WC_NET=join:127.0.0.1:23456 WC_NET_MUTE=1 out/bin/wc ../game-copy
 ```
 
+W in the friend's window hands the wingman to the game's AI and back, so they can watch it fly from
+its cockpit; `WC_NET_WATCH=1` on their side starts that way.
+
 `WC_NET_DELAY` is the input delay in 1/30 s (default 3), `WC_NET_MUTE=1` silences that window. For a
 quick test, `Origin l s1 m0` after the folder (on both) starts straight in the first mission.
 

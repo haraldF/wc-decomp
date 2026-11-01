@@ -805,6 +805,7 @@ void run_code(uint32_t code);
 static struct { uint64_t tick; int x, y, roll, kps, fire; } friend_script[64];
 static int friend_len, friend_pos, friend_off = 1;
 static uint16_t friend_state;
+static int friend_took;
 uint64_t friend_shots, friend_aimed;
 static struct view_shared {
 	_Atomic int current;
@@ -870,19 +871,26 @@ void friend_hook(uint32_t at)
 	int net_x, net_y, net_roll, net_throttle = 0, net_fire;
 	const int from_net = net_friend(&net_x, &net_y, &net_roll, &net_throttle, &net_fire);
 	if (view_child) return;
-	if (!from_net && (!friend_len || swap_active || ticks < friend_script[0].tick)) return;
 	uint16_t ship;
 	memcpy(&ship, M + rd(R_SS, 2) * 16u + (uint16_t)(rd(R_SP, 2) + 4), 2);
-	if (ship != 1 || ds_w(0x662c) != 1) return; /* only a wingman, in object 1 */
+	if (ship != 1) return;
+	if (at == FRIEND_TURN && friend_took) { /* even if they stopped flying since the AI's turn */
+		ds_set(0xbd1a + 2, friend_state);
+		friend_took = 0;
+	}
+	if (!from_net && (!friend_len || swap_active || ticks < friend_script[0].tick)) return;
+	if (ds_w(0x662c) != 1) return; /* only a wingman, in object 1 */
 	while (friend_pos + 1 < friend_len && ticks >= friend_script[friend_pos + 1].tick) friend_pos++;
 	if (at == FRIEND_AI) {
 		friend_state = ds_w(0xbd1a + 2);
 		friend_off = friend_state != 12;
-		if (!friend_off) ds_set(0xbd1a + 2, 14); /* a state the AI's switch doesn't handle: no AI */
+		if (!friend_off) { /* a state the AI's switch doesn't handle: no AI */
+			ds_set(0xbd1a + 2, 14);
+			friend_took = 1;
+		}
 		return;
 	}
 	if (friend_off) return;
-	ds_set(0xbd1a + 2, friend_state);
 	uint32_t type = ds_w(0xbff8 + 2) * 0x6fu;
 	int x = from_net ? net_x : friend_script[friend_pos].x, y = from_net ? net_y : friend_script[friend_pos].y;
 	int roll = from_net ? net_roll : friend_script[friend_pos].roll, fire = from_net ? net_fire : friend_script[friend_pos].fire;
@@ -1006,7 +1014,7 @@ static void view_spawn(void)
 	}
 	if (ds_w(0x662c) != 1 || ds_w(0xbd1a + 2) != 12) return; /* no wingman to see from */
 	int x = 0, y = 0, roll = 0, throttle, fire;
-	net_friend(&x, &y, &roll, &throttle, &fire);
+	const int flying = net_friend(&x, &y, &roll, &throttle, &fire);
 	fflush(NULL);
 	const uint64_t before = real_ns();
 	pid_t pid = fork();
@@ -1024,6 +1032,13 @@ static void view_spawn(void)
 	view_stick[1] = y;
 	view_stick[2] = roll;
 	swap_ships();
+	if (!flying) { /* the AI flies: its turning speeds as the stick that would give them (FUN_13be_0c4e) */
+		uint32_t type = ds_w(0xbff8) * 0x6fu;
+		const int pitch = (int16_t)ds_w(type + 0x49fe), yaw = (int16_t)ds_w(type + 0x49fc), spin = (int16_t)ds_w(type + 0x4a00);
+		if (yaw) view_stick[0] = -(int16_t)ds_w(0xbd9a) * 8 / yaw;
+		if (pitch) view_stick[1] = (int16_t)ds_w(0xbf42) * 8 / pitch;
+		if (spin) view_stick[2] = -(int16_t)ds_w(0xd1ac) * 8 / spin;
+	}
 }
 
 int pc_view_frame(uint8_t *pixels, uint8_t *palette)
