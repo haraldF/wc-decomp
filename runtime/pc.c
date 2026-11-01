@@ -801,7 +801,7 @@ static void swap_step(void)
  * WC_FRIEND=tick:x.y.roll.kps.fire,... from that tick on (x, y, roll -8..8; fire 0 or 1); the first
  * entry's tick is when the AI hands over. cli.ts's hooks (here patched into a copy of the generated
  * code) run at the entries of the AI (ovl09_28d0) and of the turning routine (ovl11_0606). */
-enum { FRIEND_AI = 0x3aa20, FRIEND_TURN = 0x3b496, GUNS = 0x3dd06, OVL11_SEG = 0x3ae9 };
+enum { FRIEND_AI = 0x3aa20, FRIEND_TURN = 0x3b496, RADIO_QUEUE = 0x331fb, RADIO_MESSAGE = 0x34e20, GUNS = 0x3dd06, OVL11_SEG = 0x3ae9 };
 void run_code(uint32_t code);
 static struct { uint64_t tick; int x, y, roll, kps, fire; } friend_script[64];
 static int friend_len, friend_pos, friend_off = 1;
@@ -854,6 +854,18 @@ void friend_report(void)
 
 void friend_hook(uint32_t at)
 {
+	if (at == RADIO_MESSAGE) {
+		if (getenv("WC_VIEW_LOG")) {
+			uint16_t sender;
+			memcpy(&sender, M + rd(R_SS, 2) * 16u + (uint16_t)(rd(R_SP, 2) + 4), 2);
+			fprintf(stderr, "wc: %s radio message from object %d, tick %llu\n", view_child ? "view: own" : "game:", (int16_t)sender, (unsigned long long)ticks);
+		}
+		return;
+	}
+	if (at == RADIO_QUEUE) { /* the view says nothing of its own: the game's messages are on its screen already */
+		if (view_child) memset(M + swap_ds() + 0xd236, 0xff, 10);
+		return;
+	}
 	static int init;
 	if (!init) {
 		init = 1;
@@ -989,6 +1001,26 @@ int pc_view_child(void) { return view_child; }
 /* In the child, before the rates become turning speeds: the friend's stick is the one that turns "the player". */
 void view_rates(void)
 {
+	if (!view_child && getenv("WC_COMMANDER_AIM")) { /* test: stands in for a commander who can shoot */
+		int best = -1;
+		double bestd = 1e30, rx = 0, ry = 0, rz = 0;
+		const int32_t *me = (const int32_t *)(M + swap_ds() + 0xa9c2);
+		for (int i = 2; i < 10; i++) {
+			if ((int16_t)ds_w(0xbd1a + 2 * i) < 11 || ds_w(0xbe94 + 2 * i) != 1) continue;
+			const int32_t *p = (const int32_t *)(M + swap_ds() + 0xa9c2 + 12 * i);
+			double dx = p[0] - me[0], dy = p[1] - me[1], dz = p[2] - me[2], d = dx * dx + dy * dy + dz * dz;
+			if (d < bestd) { bestd = d; best = i; rx = dx; ry = dy; rz = dz; }
+		}
+		if (best >= 0) {
+			const int32_t *ax = (const int32_t *)(M + swap_ds() + 0xaeb6), *ay = (const int32_t *)(M + swap_ds() + 0xb1b6), *az = (const int32_t *)(M + swap_ds() + 0xb4b6);
+			double px = rx * ax[0] + ry * ax[1] + rz * ax[2], py = rx * ay[0] + ry * ay[1] + rz * ay[2], pz = rx * az[0] + ry * az[1] + rz * az[2];
+			double a = pz > 0 ? pz : 1e-9;
+			int x = pz > 0 ? (int)(48 * px / a) : px >= 0 ? 8 : -8, y = (int)(48 * py / a);
+			ds_set(0xc3ac, (uint16_t)(x > 8 ? 8 : x < -8 ? -8 : x));
+			ds_set(0xc3aa, (uint16_t)(y > 8 ? 8 : y < -8 ? -8 : y));
+		}
+		return;
+	}
 	if (!view_child) return;
 	ds_set(0xc3aa, (uint16_t)view_stick[1]);
 	ds_set(0xc3ac, (uint16_t)view_stick[0]);

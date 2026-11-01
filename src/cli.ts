@@ -53,7 +53,7 @@ interface Game {
 const GAMES: Record<string, Game> = {
   // Wing Commander with the Secret Missions 1 (GOG)
   wc: { exe: "WC.EXE", dir: "../game", sha256: "c37d085909175abc95b4a51ffc884913c7d4ea52ba66ca932619ce1f67fa91ca", out: "", entries: "entries.txt",
-    rates: 0x1482e /* 13be:0c4e */, hooks: [0x3aa20 /* the AI, ovl09_28d0 */, 0x3b496 /* turning, ovl11_0606 */], roll: 0xc3ae, cycles: 8334, loadSeg: 0x200 },
+    rates: 0x1482e /* 13be:0c4e */, hooks: [0x3aa20 /* the AI, ovl09_28d0 */, 0x3b496 /* turning, ovl11_0606 */, 0x331fb /* radio queue, ovl02_2efb */, 0x34e20 /* radio message, ovl06_0970 */], roll: 0xc3ae, cycles: 8334, loadSeg: 0x200 },
   // The Secret Missions 2: Crusade, a program of its own
   sm2: { exe: "SM2.EXE", dir: "../game", sha256: "900f379b04c7b6f11ae08cf84ca278b9260df8ed81d038cdb3907bbf136cd84d", out: "sm2", entries: "entries-sm2.txt",
     rates: 0x147b8 /* 13bb:0c08 */, roll: 0xc694, cycles: 8334, loadSeg: 0x200 },
