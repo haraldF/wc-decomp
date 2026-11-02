@@ -299,11 +299,11 @@ click the pilot (a digit key would also land in the first name) and enter the fi
 
 One player is the wing commander and plays as usual. The other watches everything and, in flight,
 flies the wingman from its own cockpit: arrow keys or stick to steer, `,` and `.` to roll, `+` and
-`-` for speed, Space or Enter for the guns. Only the commander's actions move the game on. Both need
+`-` for speed, Space for the guns. Only the commander's actions move the game on. Both need
 the same game and the same save (the start refuses otherwise), each in a folder of their own, so
 on one Mac use a copy. So far only plain UDP on a local network: nothing crosses NAT yet.
 
-`npm run recomp` on this branch builds it (the wingman's AI needs two more hooks in the generated code).
+It needs a build made with `npm run recomp` (the wingman's AI needs more hooks in the generated code); `npm run build` on older generated code leaves them out.
 
 ```bash
 WC_NET=host:23456 out/bin/wc ../game

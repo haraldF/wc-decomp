@@ -173,7 +173,7 @@ void net_init(void)
 
 static void send_packet(const void *data, size_t n)
 {
-	if (!have_peer || (loss && (int)(arc4random() % 100) < loss)) return;
+	if (!have_peer || (loss && rand() % 100 < loss)) return;
 	sendto(sock, data, n, 0, (struct sockaddr *)&peer, peer_len);
 }
 
@@ -555,6 +555,7 @@ int net_capture_joystick(int x, int y, int roll, int buttons)
  * decide on which side. By its number, the friend's view can work out the same (net_ahead). */
 void net_frame(uint64_t slot)
 {
+	if (!wc_net_on) return;
 	uint32_t b = (uint32_t)(slot / BLOCK_NS);
 	if (b >= next_block) b = next_block - 1; /* (not there yet) */
 	if (b == frame_block) {

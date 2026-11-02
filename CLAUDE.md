@@ -486,8 +486,13 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   Enter from 15000, pilot row 1 `15450:@120.44,15500:+lmb,15506:-lmb`, first name from 16000: the
   quarters ~600 ticks later. Checked by saving (savegame.wc2: 58 missions, 594 kills) and into flight.
 
-## Two players (runtime/net.c, branch cockpit-swap-experiment; Wing Commander 1 only)
+## Two players (runtime/net.c; Wing Commander 1 only)
 
+- Without `WC_NET` none of this may change the game: whatever the runtime calls in net.c returns at
+  once on `wc_net_on` (`net_frame` didn't, and hung at the first flight frame). Checked by running the
+  same `WC_KEYS` on a build of the previous commit: memory, picture and files alike but for the clock
+  value the game stores at startup (143a4h and 1c7c0h, which also differ between two runs of one build).
+  The web build compiles net.c too (no `arc4random` there).
 - Lockstep over UDP: both PCs run the whole game on the instruction clock, paced to real time
   (`net_pace`); inputs wait for blocks of 1/30 s of emulated time and are applied at the same
   instruction on both. `pc_mouse`, `pc_joystick` and `key_out` hand local input to net.c.
