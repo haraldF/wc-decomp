@@ -321,7 +321,8 @@ throttle answer at once despite the input delay (`WC_NET_PREDICT=0` on their sid
 
 Their keys are the game's own in flight: arrows and `,` `.` to steer (a tap is a small turn, the turn
 builds up while held, Shift is full at once), Space to fire, Enter for a missile, `+` `-` for speed, Tab for the afterburner, T to pick a
-target and L to lock it. The target and the lock are only on their screen, but their missiles go for it.
+target and L to lock it. The target and the lock are only on their screen, but their missiles go for it. The mouse
+works as in the game too: the pointer steers, left button guns, both buttons a missile, right tapped and then held the afterburner.
 
 `WC_NET_DELAY` is the input delay in 1/30 s (default 3), `WC_NET_MUTE=1` silences that window. For a
 quick test, `Origin l s1 m0` after the folder (on both) starts straight in the first mission.

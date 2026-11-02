@@ -1074,6 +1074,25 @@ static uint64_t view_spawned;
 
 int pc_view_child(void) { return view_child; }
 
+/* As FUN_13be_0d0d: steps by the distance from the middle of the view (tables at d1 and dd), full at its edges. */
+void pc_mouse_stick(int x, int y, int *stick_x, int *stick_y)
+{
+	const int left = (int16_t)ds_w(0x89b0 + 0x1e66), top = (int16_t)ds_w(0x89b0 + 0x1e68), right = (int16_t)ds_w(0x89b0 + 0x1e6a), bottom = (int16_t)ds_w(0x89b0 + 0x1e6c);
+	y = y > bottom ? bottom : y;
+	const int dx = x - (right - left) / 2 + 1, dy = y - (bottom - top) / 2;
+	int sx = 0, sy = 0;
+	while (sx < 5 && (dx < 0 ? -dx : dx) >= (int16_t)ds_w(0xd1 + 2 * (uint32_t)sx)) sx++;
+	while (sy < 5 && (dy < 0 ? -dy : dy) >= (int16_t)ds_w(0xdd + 2 * (uint32_t)sy)) sy++;
+	sx = dx < 0 ? -sx : sx;
+	sy = dy < 0 ? -sy : sy;
+	if (x - 4 <= left) sx = -8;
+	if (right <= x + 4) sx = 8;
+	if (y - 4 <= top) sy = -8;
+	if (bottom <= y + 4) sy = 8;
+	*stick_x = sx;
+	*stick_y = sy;
+}
+
 int pc_view_target(void)
 {
 	if (!view || !atomic_load(&view->have_cockpit)) return -1;
@@ -1145,7 +1164,15 @@ void view_rates(void)
 	ds_set(0xc3aa, (uint16_t)view_stick[1]);
 	ds_set(0xc3ac, (uint16_t)view_stick[0]);
 	ds_set(0xc3ae, (uint16_t)view_stick[2]);
-	ds_set(0x00c6, 0); /* no mouse steering: its pointer is the commander's */
+	int pointer_x, pointer_y;
+	const int pointer = view_ahead_on && net_view_pointer(&pointer_x, &pointer_y); /* the pointer is the friend's, not the commander's */
+	ds_set(0x00c6, pointer ? 1 : 0);
+	if (pointer) {
+		ds_set(0x84ee, (uint16_t)pointer_x);
+		const int bottom = (int16_t)ds_w(0x89b0 + 0x1e6c);
+		ds_set(0x84f0, (uint16_t)(pointer_y > bottom ? bottom : pointer_y));
+		ds_set(0x84fb, 2);
+	}
 	if (!view_frames) view_displays();
 	M[swap_ds() + 0x6609] = (uint8_t)view_key; /* nor their keys: the friend's T and L */
 	view_key = 0;

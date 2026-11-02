@@ -81,6 +81,10 @@ static struct { int x, y, roll, throttle, fire, watch, burn, keys, target; } in_
 static uint32_t frame_block; /* the block it goes by */
 static int watch_wanted;
 static int steer_seen; /* a tap shorter than a block still counts */
+/* The friend's mouse: a stick and buttons, as the game's own in flight (FUN_13be_0d0d). A key steering
+ * sets it aside until it moves again. */
+static struct mouse { int x, y, moved, buttons, burn; uint64_t right_ns; } mouse = { .x = 160, .y = 52 }, ahead_mouse;
+enum { DOUBLE_NS = 500000000 };
 static uint8_t view_keys[16], view_down[128]; /* T and L, for the friend's view alone */
 static int view_keys_count;
 static struct block ahead_now; /* the controls as they are this moment, not in a block yet (net_ahead) */
@@ -337,6 +341,25 @@ static int steer_bits(uint8_t code)
 	return 0;
 }
 
+static void mouse_event(int x, int y, int buttons)
+{
+	if (x < 0) x = 0;
+	if (x > 319) x = 319;
+	if (y < 0) y = 0;
+	if (y > 199) y = 199;
+	if (x != mouse.x || y != mouse.y) mouse.moved = 1;
+	mouse.x = x;
+	mouse.y = y;
+	if ((buttons & 2) && !(mouse.buttons & 2)) { /* the right button, tapped and then held: the afterburner */
+		const uint64_t now = mono_ns();
+		mouse.burn = now - mouse.right_ns < DOUBLE_NS;
+		mouse.right_ns = now;
+	}
+	if (!(buttons & 2)) mouse.burn = 0;
+	if ((buttons & 3) == 3 && (mouse.buttons & 3) != 3) steer_seen |= NET_KEY_MISSILE; /* both */
+	mouse.buttons = buttons;
+}
+
 /* The friend's input: their keys and stick become the wingman's controls. */
 static void friend_event(const struct event *e)
 {
@@ -347,7 +370,16 @@ static void friend_event(const struct event *e)
 			if (!ahead_saving) fprintf(stderr, "wc: net: %s\n", watch_wanted ? "watching the wingman fly" : "you fly the wingman");
 		}
 		held[e->code & 0x7f] = !(e->code & 0x80);
-		if (!(e->code & 0x80)) steer_seen |= steer_bits(e->code);
+		if (!(e->code & 0x80)) {
+			steer_seen |= steer_bits(e->code);
+			if (steer_bits(e->code) & ~NET_KEY_MISSILE) mouse.moved = 0;
+		}
+		break;
+	case E_MOUSE:
+		mouse_event(e->a, e->b, e->code);
+		break;
+	case E_MOUSE_MOVE:
+		mouse_event(mouse.x + e->a, mouse.y + e->b, e->code);
 		break;
 	case E_JOYSTICK:
 		stick_x = e->a * 8 / 1000;
@@ -360,15 +392,18 @@ static void friend_event(const struct event *e)
 
 static void friend_controls(struct block *s)
 {
-	s->x = (int8_t)clamp8(stick_x);
-	s->y = (int8_t)clamp8(stick_y);
+	int x = stick_x, y = stick_y;
+	if (mouse.moved) pc_mouse_stick(mouse.x, mouse.y, &x, &y);
+	s->x = (int8_t)clamp8(x);
+	s->y = (int8_t)clamp8(y);
 	s->roll = (int8_t)clamp8(stick_roll);
 	int keys = steer_seen;
 	for (int code = 0; code < 128; code++) if (held[code]) keys |= steer_bits((uint8_t)code);
 	s->keys = (uint8_t)keys;
 	s->target = (int8_t)pc_view_target();
 	s->throttle = (int8_t)(held[0x0d] ? 1 : held[0x0c] ? -1 : 0);
-	s->fire = (held[0x39] || stick_fire) | (watch_wanted ? 2 : 0) | (held[0x0f] ? 4 : 0);
+	const int fire = held[0x39] || stick_fire || (mouse.buttons & 3) == 1;
+	s->fire = (uint8_t)(fire | (watch_wanted ? 2 : 0) | (held[0x0f] || mouse.burn ? 4 : 0));
 }
 
 static void commit_local(uint32_t number, uint64_t hash, uint32_t hash_block)
@@ -562,6 +597,7 @@ void net_ahead_prepare(void)
 {
 	uint8_t was_held[sizeof held];
 	const int was_seen = steer_seen;
+	const struct mouse was_mouse = mouse;
 	const int x = stick_x, y = stick_y, roll = stick_roll, fire = stick_fire, watch = watch_wanted;
 	memcpy(was_held, held, sizeof held);
 	pthread_mutex_lock(&pending_lock);
@@ -570,13 +606,22 @@ void net_ahead_prepare(void)
 	ahead_saving = 0;
 	pthread_mutex_unlock(&pending_lock);
 	friend_controls(&ahead_now);
+	ahead_mouse = mouse;
 	memcpy(held, was_held, sizeof held);
 	steer_seen = was_seen;
+	mouse = was_mouse;
 	stick_x = x;
 	stick_y = y;
 	stick_roll = roll;
 	stick_fire = fire;
 	watch_wanted = watch;
+}
+
+int net_view_pointer(int *x, int *y)
+{
+	*x = ahead_mouse.x;
+	*y = ahead_mouse.y;
+	return ahead_mouse.moved;
 }
 
 int net_view_key(void)

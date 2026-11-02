@@ -31,6 +31,9 @@ int net_ahead(uint64_t at, int *x, int *y, int *roll, int *throttle, int *fire, 
 int net_ahead_keys(uint64_t at);
 uint64_t net_ahead_ns(void); /* how far ahead what they hold now is in force */
 
+/* Where the friend's pointer is, in their view; 0 when their mouse isn't steering. */
+int net_view_pointer(int *x, int *y);
+
 /* The next press of T or L, for the friend's view alone; 0 when there is none. */
 int net_view_key(void);
 
@@ -40,3 +43,4 @@ time_t net_time(void); /* the same clock on both PCs */
 void pc_net_key(uint8_t code);
 uint64_t pc_now_ns(void);
 int pc_view_target(void); /* the friend's target in the game's numbering, -1: none */
+void pc_mouse_stick(int x, int y, int *stick_x, int *stick_y); /* the stick the game makes of a pointer there */
