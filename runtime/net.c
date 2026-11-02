@@ -49,6 +49,7 @@ struct block {
 	int valid;
 	int8_t x, y, roll, throttle;
 	uint8_t fire, count, keys;
+	int8_t target; /* the friend's, which only their view knows: for their missiles */
 	uint32_t hash_block;   /* which block hash is of (0: none) */
 	uint64_t hash;
 	struct event events[MAX_EVENTS];
@@ -76,7 +77,7 @@ static _Thread_local int applying;
 /* the friend's controls: what they hold now, and what is in force in this block */
 static uint8_t held[128];
 static int stick_x, stick_y, stick_roll, stick_fire;
-static struct { int x, y, roll, throttle, fire, watch, burn, keys; } in_frame; /* what this frame goes by */
+static struct { int x, y, roll, throttle, fire, watch, burn, keys, target; } in_frame; /* what this frame goes by */
 static uint32_t frame_block; /* the block it goes by */
 static int watch_wanted;
 static int steer_seen; /* a tap shorter than a block still counts */
@@ -316,7 +317,7 @@ static int clamp8(int v)
 	return v < -8 ? -8 : v > 8 ? 8 : v;
 }
 
-/* The steering keys down, or pressed since the last block, as NET_KEY_* bits. */
+/* The keys down, or pressed since the last block, that go by the frame, as NET_KEY_* bits. */
 static int steer_bits(uint8_t code)
 {
 	switch (code) {
@@ -331,6 +332,7 @@ static int steer_bits(uint8_t code)
 	case 0x33: case 0x52: return NET_KEY_ROLL_LEFT;
 	case 0x34: case 0x53: return NET_KEY_ROLL_RIGHT;
 	case 0x2a: case 0x36: return NET_KEY_SHIFT;
+	case 0x1c: return NET_KEY_MISSILE;
 	}
 	return 0;
 }
@@ -364,8 +366,9 @@ static void friend_controls(struct block *s)
 	int keys = steer_seen;
 	for (int code = 0; code < 128; code++) if (held[code]) keys |= steer_bits((uint8_t)code);
 	s->keys = (uint8_t)keys;
+	s->target = (int8_t)pc_view_target();
 	s->throttle = (int8_t)(held[0x0d] ? 1 : held[0x0c] ? -1 : 0);
-	s->fire = (held[0x39] || held[0x1c] || stick_fire) | (watch_wanted ? 2 : 0) | (held[0x0f] ? 4 : 0);
+	s->fire = (held[0x39] || stick_fire) | (watch_wanted ? 2 : 0) | (held[0x0f] ? 4 : 0);
 }
 
 static void commit_local(uint32_t number, uint64_t hash, uint32_t hash_block)
@@ -532,6 +535,7 @@ void net_frame(uint64_t slot)
 	in_frame.fire = s->fire & 1;
 	in_frame.watch = (s->fire & 2) != 0;
 	in_frame.burn = (s->fire & 4) != 0;
+	in_frame.target = s->target;
 	in_frame.keys = 0;
 	for (uint32_t k = frame_block + 1; k <= b; k++) in_frame.keys |= blocks[k % RING].keys;
 	frame_block = b;
@@ -595,6 +599,11 @@ int net_friend_burn(void)
 int net_friend_keys(void)
 {
 	return in_frame.keys;
+}
+
+int net_friend_target(void)
+{
+	return in_frame.target;
 }
 
 /* Like net_friend_keys for a frame with its slot at that time: the blocks since the frame before. */

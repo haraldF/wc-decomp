@@ -645,7 +645,8 @@ static struct {
  * Not d1a2, the pilot: radio messages go by it, and only a wingman's are loaded. Nothing below
  * a9c2 either but the few that go by object (9e18, 9e2e, a9a2): the rest are other tables. Also out:
  * d1a0 and ca46 go by cockpit display (d1a0: the depth of its stack of screens), d240 and be58 by
- * place in a list, d416-d580 are the music's and the menus', c244 and c260 the campaign's. */
+ * place in a list, d416-d580 are the music's and the menus', c244 and c260 the campaign's, d24c the
+ * damage to the player's systems (by system; other ships have none). */
 static const struct { uint16_t off, stride; } swap_builtin[] = {
 	{0x9e18,2}, {0x9e2e,2}, {0xa9a2,2}, {0xa9c2,12}, {0xacc4,2},
 	{0xad44,2}, {0xadc4,12}, {0xae3c,1}, {0xae4c,2}, {0xae60,2}, {0xae75,1}, {0xaeb6,12},
@@ -653,13 +654,13 @@ static const struct { uint16_t off, stride; } swap_builtin[] = {
 	{0xb976,2}, {0xb9f6,4}, {0xbb02,2}, {0xbb8e,2}, {0xbd0e,1}, {0xbd1a,2}, {0xbd9a,2}, {0xbe26,2},
 	{0xbe3a,2}, {0xbe4e,1}, {0xbe6c,4}, {0xbe94,2}, {0xbea8,1}, {0xbeb2,2}, {0xbf42,2},
 	{0xbfc2,2}, {0xbfd6,1}, {0xbfe0,2}, {0xbff8,2}, {0xc078,1}, {0xc0ba,2}, {0xc16e,1}, {0xc17a,2},
-	{0xc236,1}, {0xc284,1}, {0xc28e,2}, {0xc30e,1}, {0xc34e,2}, {0xc364,2},
+	{0xc236,1}, {0xc284,1}, {0xc472,0x33}, {0xc28e,2}, {0xc30e,1}, {0xc34e,2}, {0xc364,2},
 	{0xc378,2}, {0xc38c,2}, {0xc3a0,1}, {0xc3b0,2}, {0xc430,4}, {0xc458,1}, {0xc462,1}, 
 	{0xc670,2}, {0xc68a,2}, {0xc69e,2}, {0xc6be,2}, {0xc6d2,2}, {0xc754,4}, {0xc854,1}, {0xc85e,8},
 	{0xc8ae,1}, {0xc8b8,1}, {0xc8c2,2}, {0xc942,1}, {0xc94c,2}, {0xc960,2}, {0xc974,2}, {0xc988,4},
 	{0xc9b0,1}, {0xca3c,1}, {0xca4c,1}, {0xca56,2}, {0xca6a,12}, {0xcae2,12}, {0xcde2,2},
 	{0xce9a,12}, {0xd1ac,2}, {0xd22c,1}, {0xd236,1}, 
-	{0xd24c,1}, {0xd3e6,2}, 
+	{0xd3e6,2}, 
 };
 
 static uint32_t swap_ds(void) { return (uint32_t)((0x2231 + wc_reloc) * 16); }
@@ -803,7 +804,8 @@ static void swap_step(void)
  * WC_FRIEND=tick:x.y.roll.kps.fire,... from that tick on (x, y, roll -8..8; fire 0 or 1); the first
  * entry's tick is when the AI hands over. cli.ts's hooks (here patched into a copy of the generated
  * code) run at the entries of the AI (ovl09_28d0) and of the turning routine (ovl11_0606). */
-enum { FRIEND_AI = 0x3aa20, FRIEND_TURN = 0x3b496, RADIO_QUEUE = 0x331fb, RADIO_MESSAGE = 0x34e20, GUNS = 0x3dd06, BURNER = 0x3dded, OVL11_SEG = 0x3ae9 };
+enum { FRIEND_AI = 0x3aa20, FRIEND_TURN = 0x3b496, RADIO_QUEUE = 0x331fb, RADIO_MESSAGE = 0x34e20, GUNS = 0x3dd06, BURNER = 0x3dded, MISSILE = 0x3dc5e, OVL11_SEG = 0x3ae9,
+	OVL02_SEG = 0x3030, DISPLAY_MODE = 0x30da8 /* ovl02_0aa8 */, DISPLAYS_DRAW = 0x3377f /* ovl02_347f */, WEAPONS_DRAW = 0x31333 /* ovl02_1033 */, SYSTEM_HIT = 0x310ec /* ovl02_0dec */ };
 void run_code(uint32_t code);
 static struct { uint64_t tick; int x, y, roll, kps, fire; } friend_script[64];
 static int friend_len, friend_pos, friend_off = 1;
@@ -848,20 +850,25 @@ static void friend_steer(int keys, int *x, int *y, int *roll)
 	if (friend_stick[2]) *roll = friend_stick[2];
 }
 
-/* A routine of overlay 11, called with the ship's number and one more argument. */
-static void friend_call(uint32_t code, uint16_t ship, uint16_t arg)
+/* A routine of an overlay, called with two arguments: for the ones of overlay 11, the ship's number and one more. */
+static void overlay_call(uint16_t seg, uint32_t code, uint16_t a, uint16_t b)
 {
 	static uint8_t saved[sizeof R];
 	memcpy(saved, R, sizeof R);
 	uint16_t sp = (uint16_t)rd(R_SP, 2), ss = (uint16_t)rd(R_SS, 2);
 	uint32_t stack = ss * 16u;
-	uint16_t frame[4] = { 0, (uint16_t)rd(R_CS, 2), ship, arg }; /* ip, cs, the arguments */
+	uint16_t frame[4] = { 0, (uint16_t)rd(R_CS, 2), a, b }; /* ip, cs, the arguments */
 	sp -= 8;
 	memcpy(M + stack + sp, frame, 8);
 	wr(R_SP, 2, sp);
-	wr(R_CS, 2, (uint64_t)(OVL11_SEG + wc_reloc) & 0xffff);
+	wr(R_CS, 2, (uint64_t)(seg + wc_reloc) & 0xffff);
 	run_code(code);
 	memcpy(R, saved, sizeof R);
+}
+
+static void friend_call(uint32_t code, uint16_t ship, uint16_t arg)
+{
+	overlay_call(OVL11_SEG, code, ship, arg);
 }
 
 /* The guns, called as the player's Space key does (FUN_13be_0c0a). */
@@ -1043,6 +1050,13 @@ void friend_hook(uint32_t at)
 	ds_set(0xb9f6 + 6, (uint16_t)(set >> 16));
 	if (fire && ds_w(0xbb8e + 2) == 0xffff && (int16_t)ds_w(0xbe3a + 2) > 0) friend_guns(1);
 	if (from_net && net_friend_burn()) friend_burner(1);
+	static int missile_down;
+	const int missile = from_net && (net_friend_keys() & NET_KEY_MISSILE);
+	if (missile && !missile_down) { /* as the player's Enter key does (ovl11_2dce), at the target their view has */
+		M[swap_ds() + 0xc284 + 1] = (uint8_t)net_friend_target();
+		friend_call(MISSILE, 1, 0);
+	}
+	missile_down = missile;
 }
 
 /* The friend's view: each flight frame, a child process (fork, so nothing it does can touch the game
@@ -1060,20 +1074,36 @@ static uint64_t view_spawned;
 
 int pc_view_child(void) { return view_child; }
 
-/* T and L go through the game's own key code in the child, and their result to the next child (the
- * right display as T left it, but not over a radio message's face): the game never hears of them. */
-static int view_key;
-static int view_next_key(void)
+int pc_view_target(void)
 {
-	if (ds_w(0xbf3a + 2 * (int8_t)M[swap_ds() + 0xd1a1]) != 3 && !(int8_t)M[swap_ds() + 0xd1a1] && atomic_load(&view->target_display)) return 0x14;
-	const int key = view_key;
-	view_key = 0;
-	return key;
+	if (!view || !atomic_load(&view->have_cockpit)) return -1;
+	const int target = atomic_load(&view->target); /* in the view, the two are the other way round */
+	return target == 0 ? 1 : target == 1 ? 0 : target;
+}
+
+/* T and L go through the game's own key code in the child, and their result to the next child: the
+ * game never hears of them. */
+static int view_key;
+
+/* A wingman's displays are its own: on the commander's the friend would see what they have chosen, their
+ * missiles and what their damage has blanked. The weapons on the left and on the right the navigation,
+ * or the target after T, each child draws anew; a radio message's face stays. */
+static void view_displays(void)
+{
+	if (!(int8_t)M[swap_ds() + 0xd1a0]) overlay_call(OVL02_SEG, DISPLAY_MODE, 0, 1);
+	if (!(int8_t)M[swap_ds() + 0xd1a1]) overlay_call(OVL02_SEG, DISPLAY_MODE, 1, atomic_load(&view->target_display) ? 3 : 5);
+	overlay_call(OVL02_SEG, DISPLAYS_DRAW, 0, 0);
+	if (!(int8_t)M[swap_ds() + 0xd1a0]) overlay_call(OVL02_SEG, WEAPONS_DRAW, 0, 0); /* drawn only when the player's change */
 }
 
 /* In the child, before the rates become turning speeds: the friend's stick is the one that turns "the player". */
+static unsigned view_rates_frames;
 void view_rates(void)
 {
+	const char *hurt = getenv("WC_COMMANDER_HURT");
+	if (hurt && !view_child && view_rates_frames++ == (unsigned)atoi(hurt)) /* test: guns, comms, the targeting computer */
+		for (int i = 0; i < 9; i++) /* each system in the mask, through the routine a hit goes to; its third argument is 4 anyway */
+			if (atoi(strchr(hurt, ':') ? strchr(hurt, ':') + 1 : "42") >> i & 1) overlay_call(OVL02_SEG, SYSTEM_HIT, (uint16_t)i, 4);
 	if (!view_child && getenv("WC_COMMANDER_AIM")) { /* test: stands in for a commander who can shoot */
 		int best = -1;
 		double bestd = 1e30, rx = 0, ry = 0, rz = 0;
@@ -1095,6 +1125,7 @@ void view_rates(void)
 		return;
 	}
 	if (!view_child) return;
+	memset(M + swap_ds() + 0xd24c, 0, 9);
 	if (view_ahead_on) {
 		int x, y, roll, throttle, fire, burn;
 		const uint64_t at = view_t0 + (uint64_t)view_frames * view_period;
@@ -1115,7 +1146,9 @@ void view_rates(void)
 	ds_set(0xc3ac, (uint16_t)view_stick[0]);
 	ds_set(0xc3ae, (uint16_t)view_stick[2]);
 	ds_set(0x00c6, 0); /* no mouse steering: its pointer is the commander's */
-	M[swap_ds() + 0x6609] = (uint8_t)view_next_key(); /* nor their keys: the friend's T and L */
+	if (!view_frames) view_displays();
+	M[swap_ds() + 0x6609] = (uint8_t)view_key; /* nor their keys: the friend's T and L */
+	view_key = 0;
 	M[swap_ds() + 0x660a] = 0;
 }
 
@@ -1228,6 +1261,18 @@ static void view_spawn(void)
 	view_stick[1] = view_ahead_on ? friend_last[1] : y;
 	view_stick[2] = view_ahead_on ? friend_last[2] : roll;
 	swap_ships();
+	/* the player's damaged systems are the commander's: a wingman has none, and hears nothing of them */
+	static const uint16_t damage_texts[] = { 0x838, 0xd5d, 0xd6e, 0xd7d };
+	for (size_t i = 0; i < sizeof damage_texts / sizeof *damage_texts; i++) M[swap_ds() + damage_texts[i]] = 0;
+	M[swap_ds() + 0x8d20 + 10] = 0; /* (what is up now) */
+	/* the player's missile: the friend's first */
+	int16_t missile = -1;
+	for (int i = M[swap_ds() + 0xc472] - 1; i >= 0; i--) {
+		uint16_t type;
+		memcpy(&type, M + swap_ds() + 0xc473 + 5 * i, 2);
+		if (ds_w(type * 0x6fu + 0x49de) == 0xb) missile = (int16_t)i;
+	}
+	ds_set(0x6632, (uint16_t)missile);
 	const int wingman_pilot = (int8_t)M[swap_ds() + 0xd1a2 + 1];
 	if (wingman_pilot >= 0 && wingman_pilot < 8 && !(int8_t)M[swap_ds() + 0xd1a1]) /* targeted, the commander goes by the name in the place of the pilot's, and they by the player's (the roster's last): but a radio message is the pilot's */
 		ds_set(0x98ca + 2 * wingman_pilot, 0x9912 + 8 * 38);
