@@ -48,7 +48,7 @@ struct block {
 	uint32_t number;       /* valid when it matches the slot's block */
 	int valid;
 	int8_t x, y, roll, throttle;
-	uint8_t fire, count;
+	uint8_t fire, count, keys;
 	uint32_t hash_block;   /* which block hash is of (0: none) */
 	uint64_t hash;
 	struct event events[MAX_EVENTS];
@@ -76,9 +76,10 @@ static _Thread_local int applying;
 /* the friend's controls: what they hold now, and what is in force in this block */
 static uint8_t held[128];
 static int stick_x, stick_y, stick_roll, stick_fire;
-static int f_x, f_y, f_roll, f_throttle, f_fire, f_watch, f_burn;
+static struct { int x, y, roll, throttle, fire, watch, burn, keys; } in_frame; /* what this frame goes by */
+static uint32_t frame_block; /* the block it goes by */
 static int watch_wanted;
-static int ramp[3]; /* the arrow keys' x, y, roll: as the game's own keys (FUN_13be_0945) */
+static int steer_seen; /* a tap shorter than a block still counts */
 static uint8_t view_keys[16], view_down[128]; /* T and L, for the friend's view alone */
 static int view_keys_count;
 static struct block ahead_now; /* the controls as they are this moment, not in a block yet (net_ahead) */
@@ -315,31 +316,23 @@ static int clamp8(int v)
 	return v < -8 ? -8 : v > 8 ? 8 : v;
 }
 
-static void ramp_step(int axis, int dir)
-{
-	if (held[0x2a] || held[0x36]) ramp[axis] = dir * 8; /* with shift: at once */
-	else if (ramp[axis] * dir < 0) ramp[axis] = 0; /* the other way: stops first */
-	else if (ramp[axis] * dir < 8) ramp[axis] += dir;
-}
-
-/* Each key event, so also each repeat, is a step; a tap is a small turn. */
-static void ramp_key(uint8_t code)
+/* The steering keys down, or pressed since the last block, as NET_KEY_* bits. */
+static int steer_bits(uint8_t code)
 {
 	switch (code) {
-	case 0x47: ramp_step(1, 1); ramp_step(0, -1); break;
-	case 0x48: ramp_step(1, 1); break;
-	case 0x49: ramp_step(1, 1); ramp_step(0, 1); break;
-	case 0x4b: ramp_step(0, -1); break;
-	case 0x4d: ramp_step(0, 1); break;
-	case 0x4f: ramp_step(1, -1); ramp_step(0, -1); break;
-	case 0x50: ramp_step(1, -1); break;
-	case 0x51: ramp_step(1, -1); ramp_step(0, 1); break;
-	case 0x33: case 0x52: ramp_step(2, -1); break;
-	case 0x34: case 0x53: ramp_step(2, 1); break;
+	case 0x47: return NET_KEY_UP | NET_KEY_LEFT;
+	case 0x48: return NET_KEY_UP;
+	case 0x49: return NET_KEY_UP | NET_KEY_RIGHT;
+	case 0x4b: return NET_KEY_LEFT;
+	case 0x4d: return NET_KEY_RIGHT;
+	case 0x4f: return NET_KEY_DOWN | NET_KEY_LEFT;
+	case 0x50: return NET_KEY_DOWN;
+	case 0x51: return NET_KEY_DOWN | NET_KEY_RIGHT;
+	case 0x33: case 0x52: return NET_KEY_ROLL_LEFT;
+	case 0x34: case 0x53: return NET_KEY_ROLL_RIGHT;
+	case 0x2a: case 0x36: return NET_KEY_SHIFT;
 	}
-	if (!(held[0x4b] || held[0x4d] || held[0x47] || held[0x49] || held[0x4f] || held[0x51])) ramp[0] = 0;
-	if (!(held[0x48] || held[0x50] || held[0x47] || held[0x49] || held[0x4f] || held[0x51])) ramp[1] = 0;
-	if (!(held[0x33] || held[0x34] || held[0x52] || held[0x53])) ramp[2] = 0;
+	return 0;
 }
 
 /* The friend's input: their keys and stick become the wingman's controls. */
@@ -352,7 +345,7 @@ static void friend_event(const struct event *e)
 			if (!ahead_saving) fprintf(stderr, "wc: net: %s\n", watch_wanted ? "watching the wingman fly" : "you fly the wingman");
 		}
 		held[e->code & 0x7f] = !(e->code & 0x80);
-		ramp_key(e->code & 0x80 ? 0 : e->code);
+		if (!(e->code & 0x80)) steer_seen |= steer_bits(e->code);
 		break;
 	case E_JOYSTICK:
 		stick_x = e->a * 8 / 1000;
@@ -365,9 +358,12 @@ static void friend_event(const struct event *e)
 
 static void friend_controls(struct block *s)
 {
-	s->x = (int8_t)clamp8(ramp[0] ? ramp[0] : stick_x);
-	s->y = (int8_t)clamp8(ramp[1] ? ramp[1] : stick_y);
-	s->roll = (int8_t)clamp8(ramp[2] ? ramp[2] : stick_roll);
+	s->x = (int8_t)clamp8(stick_x);
+	s->y = (int8_t)clamp8(stick_y);
+	s->roll = (int8_t)clamp8(stick_roll);
+	int keys = steer_seen;
+	for (int code = 0; code < 128; code++) if (held[code]) keys |= steer_bits((uint8_t)code);
+	s->keys = (uint8_t)keys;
 	s->throttle = (int8_t)(held[0x0d] ? 1 : held[0x0c] ? -1 : 0);
 	s->fire = (held[0x39] || held[0x1c] || stick_fire) | (watch_wanted ? 2 : 0) | (held[0x0f] ? 4 : 0);
 }
@@ -390,11 +386,14 @@ static void commit_local(uint32_t number, uint64_t hash, uint32_t hash_block)
 	memmove(pending, pending + used, (size_t)(pending_count - used) * sizeof *pending);
 	pending_count -= used;
 	pthread_mutex_unlock(&pending_lock);
-	if (wc_net_join) friend_controls(s);
+	if (wc_net_join) {
+		friend_controls(s);
+		steer_seen = 0;
+	}
 	local_top = number + 1;
 }
 
-static void apply(const struct block *commander, const struct block *friend)
+static void apply(const struct block *commander)
 {
 	applying = 1;
 	for (int i = 0; i < commander->count; i++) {
@@ -407,13 +406,6 @@ static void apply(const struct block *commander, const struct block *friend)
 		}
 	}
 	applying = 0;
-	f_x = friend->x;
-	f_y = friend->y;
-	f_roll = friend->roll;
-	f_throttle = friend->throttle;
-	f_fire = friend->fire & 1;
-	f_burn = (friend->fire & 4) != 0;
-	f_watch = (friend->fire & 2) != 0; /* in the friend's block, so at the same moment on both PCs */
 }
 
 /* The machine as both PCs must have it. Video memory is left out: the friend's isn't shown anyway. */
@@ -468,7 +460,7 @@ void net_poll(void)
 		}
 		const struct block empty = { 0 };
 		const struct block *mine = &local[b % RING], *theirs = peer_gone ? &empty : &remote[b % RING];
-		apply(wc_net_join ? theirs : mine, wc_net_join ? mine : theirs);
+		apply(wc_net_join ? theirs : mine);
 		commit_local(b + (uint32_t)delay_blocks, hash, hash_block);
 		next_block = b + 1;
 		next_block_ns += BLOCK_NS;
@@ -520,23 +512,52 @@ int net_capture_joystick(int x, int y, int roll, int buttons)
 	return 1;
 }
 
+/* At each frame's slot. The frame goes by the friend's block at that time: not whatever was in force
+ * when the game read it, since the blocks and the frames meet within a millisecond here and interrupts
+ * decide on which side. By its number, the friend's view can work out the same (net_ahead). */
+void net_frame(uint64_t slot)
+{
+	uint32_t b = (uint32_t)(slot / BLOCK_NS);
+	if (b >= next_block) b = next_block - 1; /* (not there yet) */
+	if (b == frame_block) {
+		in_frame.keys = 0;
+		return;
+	}
+	const struct block *blocks = wc_net_join ? local : remote;
+	const struct block *s = &blocks[b % RING];
+	in_frame.x = s->x;
+	in_frame.y = s->y;
+	in_frame.roll = s->roll;
+	in_frame.throttle = s->throttle;
+	in_frame.fire = s->fire & 1;
+	in_frame.watch = (s->fire & 2) != 0;
+	in_frame.burn = (s->fire & 4) != 0;
+	in_frame.keys = 0;
+	for (uint32_t k = frame_block + 1; k <= b; k++) in_frame.keys |= blocks[k % RING].keys;
+	frame_block = b;
+}
+
 int net_friend(int *x, int *y, int *roll, int *throttle, int *fire)
 {
-	if (!wc_net_on || peer_gone || f_watch) return 0;
-	*x = f_x;
-	*y = f_y;
-	*roll = f_roll;
-	*throttle = f_throttle;
-	*fire = f_fire;
+	if (!wc_net_on || peer_gone || in_frame.watch) return 0;
+	*x = in_frame.x;
+	*y = in_frame.y;
+	*roll = in_frame.roll;
+	*throttle = in_frame.throttle;
+	*fire = in_frame.fire;
 	return 1;
+}
+
+uint64_t net_ahead_ns(void)
+{
+	return (uint64_t)(delay_blocks + 1) * BLOCK_NS;
 }
 
 /* Before the fork: another thread may hold the lock then, for good in the child. */
 void net_ahead_prepare(void)
 {
 	uint8_t was_held[sizeof held];
-	int was_ramp[3];
-	memcpy(was_ramp, ramp, sizeof ramp);
+	const int was_seen = steer_seen;
 	const int x = stick_x, y = stick_y, roll = stick_roll, fire = stick_fire, watch = watch_wanted;
 	memcpy(was_held, held, sizeof held);
 	pthread_mutex_lock(&pending_lock);
@@ -546,7 +567,7 @@ void net_ahead_prepare(void)
 	pthread_mutex_unlock(&pending_lock);
 	friend_controls(&ahead_now);
 	memcpy(held, was_held, sizeof held);
-	memcpy(ramp, was_ramp, sizeof ramp);
+	steer_seen = was_seen;
 	stick_x = x;
 	stick_y = y;
 	stick_roll = roll;
@@ -568,12 +589,29 @@ int net_view_key(void)
 
 int net_friend_burn(void)
 {
-	return f_burn;
+	return in_frame.burn;
+}
+
+int net_friend_keys(void)
+{
+	return in_frame.keys;
+}
+
+/* Like net_friend_keys for a frame with its slot at that time: the blocks since the frame before. */
+int net_ahead_keys(uint64_t at)
+{
+	const uint32_t last = (uint32_t)(at / BLOCK_NS);
+	int keys = 0;
+	for (; frame_block < last; frame_block++) {
+		const uint32_t k = frame_block + 1;
+		keys |= k < local_top ? local[k % RING].keys : ahead_now.keys;
+	}
+	return keys;
 }
 
 int net_ahead(uint64_t at, int *x, int *y, int *roll, int *throttle, int *fire, int *burn)
 {
-	const uint32_t b = next_block - 1 + (at >= next_block_ns ? (uint32_t)((at - next_block_ns) / BLOCK_NS) + 1 : 0);
+	const uint32_t b = (uint32_t)(at / BLOCK_NS);
 	const struct block *s = b < local_top ? &local[b % RING] : &ahead_now;
 	*x = s->x;
 	*y = s->y;

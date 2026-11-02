@@ -19,11 +19,16 @@ int net_capture_joystick(int x, int y, int roll, int buttons);
 /* The friend's controls for this block; 0 when no friend is connected any more. */
 int net_friend(int *x, int *y, int *roll, int *throttle, int *fire);
 int net_friend_burn(void); /* their afterburner key */
+int net_friend_keys(void); /* the steering keys since the last frame: pc.c steps the stick each frame */
+void net_frame(uint64_t slot); /* at each frame's slot: the controls that frame goes by */
+enum { NET_KEY_LEFT = 1, NET_KEY_RIGHT = 2, NET_KEY_DOWN = 4, NET_KEY_UP = 8, NET_KEY_ROLL_LEFT = 16, NET_KEY_ROLL_RIGHT = 32, NET_KEY_SHIFT = 64 };
 
 /* The friend's controls at that emulated time, for the friend's view running ahead of the game: what
  * is on its way in the blocks, then what they hold now. Returns 1 from where that is what they hold now. */
 void net_ahead_prepare(void);
 int net_ahead(uint64_t at, int *x, int *y, int *roll, int *throttle, int *fire, int *burn);
+int net_ahead_keys(uint64_t at);
+uint64_t net_ahead_ns(void); /* how far ahead what they hold now is in force */
 
 /* The next press of T or L, for the friend's view alone; 0 when there is none. */
 int net_view_key(void);

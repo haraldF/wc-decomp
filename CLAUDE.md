@@ -510,18 +510,22 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   it. Swapping arrays at odd offsets as 4-byte elements (the pattern finds `bb01`, the array is word
   `bb02`) scrambled the draw parameters: it only showed with ship 3 on screen, as "missing code"
   in the child. Test with `WC_FRIEND_CHASE=n` on both sides: the friend's stick chases ship n.
-- The friend's keys step the stick like the game's own (FUN_13be_0945, `ramp_key`): each key event,
-  repeats too, is one step of 8, the other way stops first. Mapped to full deflection a tap was 8 degrees
-  a frame at 15 fps. Tab goes in the block (fire bit 2; ovl11_35d8's logic with the ship's number, `friend_burner`,
-  without its random damage check: 1235 kps checked). T and L stay on the friend's side: `view_next_key`
+- The friend's keys step the stick like the game's own (FUN_13be_0945): one step a frame while a key is
+  down, the other way stops first (`friend_steer`, from NET_KEY_* bits in the blocks; both PCs and the view
+  run it). The friend's stick stops at 8 (~7.8 degrees a frame); the player's goes 8, 9, 8, 9 (~8.35, unevenly). `friend_hook` writes both the current rates and the wanted ones: ovl11_0606 moves the first to the second at a limited rate, which held a turn back, on a diagonal to half. Tab goes in
+  the block (`friend_burner`, ovl11_35d8's logic without its random damage check: 1235 kps checked). T and L stay on
+  the friend's side: `view_next_key`
   feeds them to the game's key code in one child through 6609, and the target (c284), lock (6641) and
   right display pass to the next child through the shared memory.
-- The friend's view runs ahead while they fly (`view_rates`, `net_ahead`; `WC_NET_PREDICT=0` off): each
-  frame it takes the controls of the block due at that frame's slot, then what they hold now, until a
-  frame has what they hold now (delay 3: 4 frames ahead at the default 15 fps, ~5 ms a picture). Key to
-  picture ~30 ms against ~160 ms without; only the commander's next move can be wrong, and that ends
-  with the child. The child must keep the game's frame slots (`clock_skip_ns`, from the next frame's
-  slot) and fires through the rates hook: the turning routine's hook doesn't run for ship 0. A stall on
+- Targeted in the friend's view, the commander is in the wingman's place and would read SPIRIT: each child points the pilot's roster entry (98ca) at the player's, the roster's last, unless a radio message is up, which needs the pilot's. Enemies aren't removed for being far from the friend: they stay with the commander, out of the friend's radar and sight.
+- The friend's view runs ahead while they fly (`view_rates`, `net_ahead`; `WC_NET_PREDICT=0` off), always
+  the same number of frames (`view_lead`, 3 at delay 3 and the default 15 fps, ~5 ms a picture): a number
+  that varied made the picture step 0 or 2 frames at a time. It must match the wingman frame for frame or the
+  picture jerks at every turn: a frame goes by the block whose number its slot gives (`net_frame`; blocks and
+  frames meet within a millisecond and interrupts decide on which side, so never by what is in force), the wingman's stick turns it the frame after and the player's the same frame, so the
+  child's stick is the one from a frame before, and the keys of the two blocks to a frame are or-ed. Compare
+  what is on the screen, the frame before the last (`WC_VIEW_PRED=1`), with the game's. Key to picture ~30-70
+  ms against ~160 ms without; only the commander's next move can be wrong, and that ends with the child. A stall on
   the other side's inputs still stops the pictures: nothing is forked while the game waits. It may read
   files it opens itself (`view_file_call`; the game opens DISK.004 for read and write every 32 frames
   in one test flight, only there): a file opened before the fork shares its position with the game.
