@@ -414,7 +414,24 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 - GOG release (SHA-256 0eb4e54e...), `--game wc2`: folder `../game2`, output `out/wc2/`
   (`out/wc2/bin/wc2`), `entries-wc2.txt`. Borland C++ 2.0 (1991), VROOM overlays again but 124 of
   them (796 entries); DGROUP 1976h (runtime DS = load seg + 1976h = 2376h), entry 0000:0000.
-  Also in the folder: SO1.EXE/SO2.EXE (Special Operations), not done yet.
+- SO1.EXE/SO2.EXE (Special Operations, `--game so1`/`so2`, `out/so1/`, `out/so2/`): the same engine,
+  folder, load segment and speed, with other addresses, so their own `entries-so*.txt`. They load
+  WC2's drivers with other header values and data: drivers.txt maps those hashes to d7000 and db000
+  (the code is the same; compare captures before letting `discover` name a new driver, which also
+  leaves too few segments). WC2's driver entries were copied into the entries files, and its
+  program entries where 16 bytes of code match in just one place.
+- SO2's scene interpreter (ovl36) checks its big switch as `cmp bx,n; jbe +3; jmp default; shl bx,1`,
+  the default too far for JA: `switchTargets` knows that now. Without it the 186 cases came up one
+  discover round at a time. Nothing else in the other programs has that form (their output didn't change).
+- Scripted (instruction clock, WC_MOUSE=1): Start New Game as in WC2, at 2200 in SO1 but 3000 in SO2
+  (its menu comes later); Esc 400 ticks on, Space every 200 from 800 on to 14700; the database by
+  14000, ready for keys by 15000. Keys there must be held ~10 ticks (`+c`, `-c`): a press and release
+  at once goes unnoticed. New pilot: `c` at 15000, names from 15600 each 400 ticks. Transfer:
+  `15000:@110.60` + a click (the T key did nothing), a pilot row `16600:@100.44` + a click: the
+  quarters straight away, no name asked. The middle door by 17300 (a click at 160,100 earlier hits a
+  database button and plays the credits), the cockpit by 30000. The console (25,110) has Load 110,58,
+  Save 110,78 (a slot row, a comment, Enter). The saves are savegame.so1/.so2; a lost mission asks
+  Replay (left) or Continue Script (235,168).
 - One overlay relocation word has bit 0 set (overlay 77, 05B1h): stub index 182 | 1 means the
   segment the overlay's own code is loaded at, not its stub (a far pointer to a callback in
   itself). `flatten.ts` maps it to the overlay's flattened segment.

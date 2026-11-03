@@ -51,6 +51,17 @@ npm run decompile -- --game wc2 && npm run recomp -- --game wc2
 npm run play -- --game wc2      # or out/wc2/bin/wc2 ../game2
 ```
 
+Its Special Operations 1 and 2 (`SO1.EXE`, `SO2.EXE`, in the same folder) are programs of their own,
+built the same way with `-- --game so1` and `-- --game so2` (into `out/so1/` and `out/so2/`, entry
+points in `entries-so1.txt`, `entries-so2.txt`). The drivers they load aren't in the repository, so
+a first build needs `play` or `discover` to capture them. A pilot can be transferred from a WC2 or
+Special Operations 1 save in the personnel database (click the line: the T key doesn't work there).
+
+```bash
+npm run decompile -- --game so1 && npm run recomp -- --game so1
+npm run play -- --game so1      # or out/so1/bin/so1 ../game2
+```
+
 Its music plays on the AdLib, and the speech (the cutscenes' dialogue and the wingmen's messages in
 flight; GOG's release includes the Speech Accessory Pack) on the emulated Sound Blaster.
 

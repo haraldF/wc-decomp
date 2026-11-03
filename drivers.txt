@@ -12,3 +12,7 @@ d7000 b32dc26934afea98  the same, as WC2.EXE loads it (same code, other header v
 da000 13e9b9bd99d1a695  WC2.EXE: AdLib music
 db000 88ebf682939f969b  WC2.EXE: graphics (menus, rooms)
 dc000 d3ff6af2b2ae9d5a  WC2.EXE: Roland MT-32 music (MPU-401)
+db000 981be19b07c8b0ce  the same, as SO1.EXE loads it
+db000 11be51afd230c445  the same, as SO2.EXE loads it
+d7000 4b40d9e2482f67b0  the same, as SO1.EXE loads it
+d7000 ef2cdcf7829f21ce  the same, as SO2.EXE loads it

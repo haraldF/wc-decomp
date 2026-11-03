@@ -1,7 +1,8 @@
-// Usage: node src/cli.ts <command> [--game wc|sm2|wc2] [--exe file] [--borland dir] [--out dir]
+// Usage: node src/cli.ts <command> [--game wc|sm2|wc2|so1|so2] [--exe file] [--borland dir] [--out dir]
 //   --game       which program: wc (WC.EXE: Vega and Secret Missions 1, in out/, binary out/bin/wc) or
 //                sm2 (SM2.EXE: Secret Missions 2, in out/sm2/, binary out/sm2/bin/sm2) or
-//                wc2 (WC2.EXE: Wing Commander II in ../game2, in out/wc2/, binary out/wc2/bin/wc2)
+//                wc2 (WC2.EXE: Wing Commander II in ../game2, in out/wc2/, binary out/wc2/bin/wc2) or
+//                so1, so2 (SO1.EXE, SO2.EXE: its Special Operations, likewise in ../game2 and out/so1/, out/so2/)
 //   flatten      write out/WC_FLAT.EXE (overlays folded in) and out/manifest.json
 //   fid          build out/borland-tc10.fidb, a Function ID database of the Borland Turbo C++ 1.0
 //                runtime, from CM.LIB, C0M.OBJ and OVERLAY.LIB in --borland (only once)
@@ -63,6 +64,11 @@ const GAMES: Record<string, Game> = {
     // 32 KB higher, as GOG's "loadfix -32 wc2.exe": SHIP.V18 holds a stray pointer (3831:772e) that the game
     // frees in flight; loaded low, it falls in the first heap block (a graphics driver) and frees it
     loadSeg: 0xa00 },
+  // Its Special Operations 1 and 2, programs of their own on the same engine, in the same folder
+  so1: { exe: "SO1.EXE", dir: "../game2", sha256: "eae5d3c29c9b08c2302c0f3d2623307206cce866cca5ff7ce87dcbc3de99670f", out: "so1",
+    entries: "entries-so1.txt", rates: 0, roll: 0, cycles: 12000, loadSeg: 0xa00 },
+  so2: { exe: "SO2.EXE", dir: "../game2", sha256: "f9b53260a85340416febc68dd10dc0efb5570a5f97c872f3425e6f87e65207ae", out: "so2",
+    entries: "entries-so2.txt", rates: 0, roll: 0, cycles: 12000, loadSeg: 0xa00 },
 };
 const gameName = values.game!;
 const game = GAMES[gameName];

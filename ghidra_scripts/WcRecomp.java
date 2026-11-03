@@ -444,6 +444,20 @@ public class WcRecomp extends GhidraScript {
 			else if ((p[0] & 0xff) == 0x81 && (p[1] & 0xff) == 0xfb && (p[4] & 0xff) == 0x77 && (p[6] & 0xff) == 0xd1 && (p[7] & 0xff) == 0xe3) {
 				n = (p[2] & 0xff) | (p[3] & 0xff) << 8;
 			}
+			else if ((p[1] & 0xff) == 0x76 && (p[2] & 0xff) == 3 && (p[3] & 0xff) == 0xe9 && (p[6] & 0xff) == 0xd1 && (p[7] & 0xff) == 0xe3) {
+				// the default too far for JA: cmp bx,n; jbe +3; jmp default; shl bx,1
+				byte[] c = new byte[4];
+				currentProgram.getMemory().getBytes(linearToAddress(at - 11), c);
+				if ((c[1] & 0xff) == 0x83 && (c[2] & 0xff) == 0xfb) {
+					n = c[3] & 0xff;
+				}
+				else if ((c[0] & 0xff) == 0x81 && (c[1] & 0xff) == 0xfb) {
+					n = (c[2] & 0xff) | (p[0] & 0xff) << 8;
+				}
+				else {
+					return targets;
+				}
+			}
 			else if (driverSeg >= 0) {
 				n = -1;
 			}
