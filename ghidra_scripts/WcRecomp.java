@@ -73,6 +73,8 @@ public class WcRecomp extends GhidraScript {
 
 	/** Instructions before which the runtime's wc_hook(address) runs (script argument 4: hex, commas). */
 	private final Set<Long> hooks = new HashSet<>();
+	/** the hooks whose instruction was emitted (each must be: the summary lists the others) */
+	private final Set<Long> hooked = new TreeSet<>();
 
 	/** Driver mode: the image's virtual segment, or -1 for the program itself. */
 	private int driverSeg = -1;
@@ -215,6 +217,18 @@ public class WcRecomp extends GhidraScript {
 			"%d CS fixes, %d near wrap fixes, %d segment override fixes, %d far jump fixes, %d IRET fixes, %d overlay code reads, " +
 			"%d relocated constants, %d unhandled p-code ops", functions.size(), fragments.size(), owner.size(),
 			files.size(), csFixes, nearWrapFixes, overrideFixes, farJumpFixes, iretFixes, codeReads, relocConstants, unhandled));
+		TreeSet<Long> missing = new TreeSet<>(hooks);
+		missing.removeAll(hooked);
+		writeSummary(out.resolve("summary.json"), functions.size(), fragments.size(), owner.size(), missing);
+	}
+
+	/** What cli.ts checks afterwards (a script's failure doesn't fail analyzeHeadless): written last.
+	 * missingHooks: hooks (script argument 4) that aren't at an instruction, so never called. */
+	private void writeSummary(Path file, int functions, int fragments, int instructions, Set<Long> missingHooks)
+			throws Exception {
+		Files.writeString(file, String.format("{ \"functions\": %d, \"fragments\": %d, \"instructions\": %d, " +
+			"\"unhandled\": %d, \"missingHooks\": [%s] }\n", functions, fragments, instructions, unhandled,
+			String.join(", ", missingHooks.stream().map(a -> "\"" + Long.toHexString(a) + "\"").toList())));
 	}
 
 	private void runDriver(Path out, String name, Path entriesFile) throws Exception {
@@ -341,6 +355,7 @@ public class WcRecomp extends GhidraScript {
 		writeIfChanged(out.resolve("drv_" + name + "_tables.c"), t.toString());
 		println(String.format("WcRecomp: driver %s: %d functions + %d fragments, %d instructions in %d byte ranges; " +
 			"%d unhandled p-code ops", name, functions.size(), fragments.size(), owner.size(), merged.size(), unhandled));
+		writeSummary(out.resolve("summary_" + name + ".json"), functions.size(), fragments.size(), owner.size(), Set.of());
 	}
 
 	/** Unchanged files keep their timestamps, so the C build only recompiles what changed. */
@@ -680,6 +695,7 @@ public class WcRecomp extends GhidraScript {
 				.append("); /* ").append(ins.getAddress()).append(" ").append(ins.toString().replace("*/", "* /"))
 				.append(" */\n");
 		if (hooks.contains(at)) {
+			hooked.add(at);
 			c.append("\twc_hook(0x").append(Long.toHexString(at)).append(");\n");
 		}
 
@@ -771,7 +787,9 @@ public class WcRecomp extends GhidraScript {
 			case PcodeOp.INT_AND: return set(out, a + " & " + b, uniques);
 			case PcodeOp.INT_OR: return set(out, a + " | " + b, uniques);
 			case PcodeOp.INT_XOR: return set(out, a + " ^ " + b, uniques);
-			case PcodeOp.INT_DIV: return set(out, "udiv(" + a + ", " + b + ", 0x" + Long.toHexString(at) + ")", uniques);
+			// DIV and IDIV: the size is the dividend's, whose quotient must fit in half of it (wc_rt.h)
+			case PcodeOp.INT_DIV:
+				return set(out, "udiv(" + a + ", " + b + ", " + as + ", 0x" + Long.toHexString(at) + ")", uniques);
 			case PcodeOp.INT_REM: return set(out, "urem(" + a + ", " + b + ", 0x" + Long.toHexString(at) + ")", uniques);
 			case PcodeOp.INT_SDIV:
 				return set(out, "sdiv(" + a + ", " + b + ", " + as + ", 0x" + Long.toHexString(at) + ")", uniques);

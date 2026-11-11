@@ -11,6 +11,8 @@
  *   WC_POKE=addr:byte,...  patch memory before starting (linear hex addresses), for experiments
  *   WC_WATCH=addr          report every write to that linear address (hex), with the callers
  *   WC_DUMP=file    save the memory (1 MB) at a WC_KEYS quit or when a driver's code is overwritten
+ *   WC_STRICT=1     stop at a quotient too large for DIV/IDIV (otherwise truncated and reported),
+ *                   and at a DOS call whose buffer runs past 1 MB
  *   WC_HEADLESS=1   no window (keys from the terminal or WC_KEYS)
  *   WC_MOUSE=1      report a mouse without a window (for WC_KEYS mouse entries)
  *   WC_MOUSE_SPEED=x  the mouse's speed in full screen (default 2; Cmd+Left/Right in the window)
@@ -200,6 +202,8 @@ int main(int argc, char **argv)
 
 	const char *watch = getenv("WC_WATCH");
 	wc_watch = watch ? (uint32_t)strtoul(watch, NULL, 16) : 0;
+	const char *strict = getenv("WC_STRICT");
+	wc_strict = strict && *strict && strcmp(strict, "0");
 
 	const char *poke = getenv("WC_POKE");
 	for (const char *p = poke; p && *p;) {

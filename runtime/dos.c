@@ -236,12 +236,32 @@ static int fcb_match(const char *pattern, const char *fcb)
 	return 1;
 }
 
+/* A DOS read into, or write from, the buffer at DS:DX (up to 64 KB): past 1 MB it goes on at 0, as
+ * with the A20 line off (reported once; WC_STRICT stops there), not past M. */
+static ssize_t transfer(int fd, uint32_t base, uint32_t n, int writing)
+{
+	uint32_t first = n;
+	if (base + n > MEM_SIZE) {
+		static int reported;
+		if (wc_strict) cpu_fail("a DOS read or write whose buffer runs past 1 MB, after instruction", wc_last_ins);
+		if (!reported++) {
+			fprintf(stderr, "wc: a DOS %s of %u bytes at %05x runs past 1 MB: it goes on at 0 (A20 off)\n",
+				writing ? "write" : "read", n, base);
+		}
+		first = MEM_SIZE - base;
+	}
+	ssize_t r = writing ? write(fd, M + base, first) : read(fd, M + base, first);
+	if (r < 0 || (uint32_t)r < first || first == n) return r;
+	ssize_t rest = writing ? write(fd, M, n - first) : read(fd, M, n - first);
+	return rest < 0 ? r : r + rest;
+}
+
 /* Fills the DTA with the next match from the index kept there (CF and error 12h when there is none). */
 static void find_next(void)
 {
 	char pattern[11];
-	memcpy(pattern, M + dta + 1, 11);
-	uint8_t attr = M[dta];
+	for (int i = 0; i < 11; i++) pattern[i] = (char)mrd(dta + 1 + (uint32_t)i, 1);
+	uint8_t attr = (uint8_t)mrd(dta, 1);
 	uint32_t index = (uint32_t)mrd(dta + 12, 4);
 	DIR *d = opendir(find_dir);
 	struct dirent *e;
@@ -260,13 +280,13 @@ static void find_next(void)
 		struct tm tm;
 		time_t mtime = wc_net_on ? net_time() : st.st_mtime;
 		localtime_r(&mtime, &tm);
-		M[dta + 0x15] = S_ISDIR(st.st_mode) ? 0x10 : 0x20;
+		mwr(dta + 0x15, 1, S_ISDIR(st.st_mode) ? 0x10 : 0x20);
 		mwr(dta + 0x16, 2, tm.tm_hour << 11 | tm.tm_min << 5 | tm.tm_sec / 2);
 		mwr(dta + 0x18, 2, (tm.tm_year - 80) << 9 | (tm.tm_mon + 1) << 5 | tm.tm_mday);
 		mwr(dta + 0x1a, 4, (uint32_t)st.st_size);
 		int i = 0;
-		for (const char *c = e->d_name; *c && i < 12; c++) M[dta + 0x1e + i++] = (uint8_t)toupper((unsigned char)*c);
-		M[dta + 0x1e + i] = 0;
+		for (const char *c = e->d_name; *c && i < 12; c++) mwr(dta + 0x1e + (uint32_t)i++, 1, (uint8_t)toupper((unsigned char)*c));
+		mwr(dta + 0x1e + (uint32_t)i, 1, 0);
 		mwr(dta + 12, 4, n + 1);
 		closedir(d);
 		ok();
@@ -436,8 +456,7 @@ static void dos(uint32_t at)
 			fail_dos(6);
 			break;
 		}
-		uint64_t n = CX, base = lin(DS, DX);
-		ssize_t got = read(fd, M + base, n);
+		ssize_t got = transfer(fd, (uint32_t)lin(DS, DX), CX, 0);
 		if (got < 0) {
 			fail_dos(5);
 			break;
@@ -452,11 +471,10 @@ static void dos(uint32_t at)
 			fail_dos(6);
 			break;
 		}
-		uint64_t n = CX, base = lin(DS, DX);
 		if (fd <= 2) {
 			fflush(stdout);
 		}
-		ssize_t put = write(fd, M + base, n);
+		ssize_t put = transfer(fd, (uint32_t)lin(DS, DX), CX, 1);
 		if (put < 0) {
 			fail_dos(5);
 			break;
@@ -559,8 +577,8 @@ static void dos(uint32_t at)
 		to_fcb(name, fcb);
 		*name = 0;
 		host_path(dos, find_dir, sizeof find_dir); /* one search folder at a time */
-		M[dta] = (uint8_t)CX;
-		memcpy(M + dta + 1, fcb, 11);
+		mwr(dta, 1, (uint8_t)CX);
+		for (int i = 0; i < 11; i++) mwr(dta + 1 + (uint32_t)i, 1, (uint8_t)fcb[i]);
 		mwr(dta + 12, 4, 0);
 		find_next();
 		if (wc_trace) fprintf(stderr, "wc: find first \"%.11s\" in %s -> %s\n", fcb, find_dir, (rd(R_CF, 1) ? "nothing" : (char *)M + dta + 0x1e));

@@ -12,6 +12,7 @@ uint64_t wc_icount;
 int wc_trace;
 int64_t wc_reloc;
 uint32_t wc_watch, wc_last_ins;
+int wc_strict;
 uint32_t wc_ret_stack[WC_RET_STACK];
 int wc_ret_depth;
 uint32_t wc_image_lo, wc_image_hi;
@@ -338,6 +339,20 @@ _Noreturn void cpu_fail(const char *what, uint32_t at)
 _Noreturn void cpu_div0(uint32_t at)
 {
 	cpu_fail("divide error at", at);
+}
+
+void cpu_div_overflow(uint32_t at)
+{
+	static uint32_t seen[256];
+	static unsigned nseen;
+	if (wc_strict) cpu_fail("divide overflow (the quotient doesn't fit) at", at);
+	for (unsigned i = 0; i < nseen; i++) {
+		if (seen[i] == at) return;
+	}
+	if (nseen < sizeof seen / sizeof seen[0]) seen[nseen++] = at;
+	fprintf(stderr, "wc: divide overflow at %05x (CS=%04llx): the quotient truncated (the 8086 would raise INT 0)\n", at,
+		rd(R_CS, 2));
+	print_callers(stderr);
 }
 
 void trace_ins(uint32_t at)

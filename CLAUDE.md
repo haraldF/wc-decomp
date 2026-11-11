@@ -165,6 +165,14 @@ x86 real-mode modelling bugs the scripts work around:
   exact header tracking every file including it would recompile (a full build is ~30 s). Only
   `wc_dispatch.c` includes it. WcRecomp deletes `seg_*.c` files it no longer writes, since the
   build globs them (a stale `seg_unknown.c` was being linked in).
+- `npm run recomp` checks that the generator finished: analyzeHeadless exits 0 even when a script
+  throws, so `WcRecomp.java` writes `summary.json` (`summary_<driver>.json` for a driver) into the
+  recomp folder last, and `cli.ts` fails without it, on more unhandled p-code ops than are known
+  (`unhandled` in `GAMES`: SM2.EXE has 9 in data decoded as code), or on a hook (`hooks`, `rates` in `GAMES`) that isn't at an instruction.
+- Division: every `INT_DIV`/`INT_SDIV` comes from `DIV`/`IDIV`, whose quotient must fit in half the
+  dividend (`udiv`/`sdiv` get its size: DX:AX 4, AX 2). The 8086 raises INT 0 when it doesn't (the
+  C library's "Divide error", and the game ends); here the quotient is truncated and the
+  instruction reported once ("wc: divide overflow at"); `WC_STRICT=1` stops there.
 
 ## PC emulation (runtime/pc.c, dos.c)
 
@@ -201,7 +209,9 @@ x86 real-mode modelling bugs the scripts work around:
   copies pages in and out of the frame. WC_EMS=0 turns it off.
 - BDA 0x463 must be 0x3D4 (CRTC base) or the retrace wait polls port 6. Port 3DA toggles.
 - DOS INT 21h: the functions the game uses (see `dos.c`); file names are case-insensitive against
-  the game folder.
+  the game folder. A read or write whose buffer (DS:DX, up to 64 KB) runs past 1 MB goes on at 0, as
+  with the A20 line off (`transfer`, reported once; `WC_STRICT=1` stops), instead of past `M`; the
+  DTA's fields go through `mwr`/`mrd` (wrapped at 1 MB, code writes noticed).
 
 ## Window (runtime/host_sdl.c, vga.c)
 

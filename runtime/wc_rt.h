@@ -124,18 +124,33 @@ static inline uint64_t sborrow(uint64_t a, uint64_t b, int size)
 void cpu_report(FILE *f); /* instructions executed and registers */
 _Noreturn void cpu_fail(const char *what, uint32_t at);
 void set_flags_word(uint16_t flags); /* the 16-bit FLAGS value into CF, PF, ..., OF */
+/* DIV and IDIV: size is the dividend's (DX:AX: 4, AX: 2), the quotient must fit in half of it. When
+ * it doesn't, the 8086 raises INT 0 (the C library's "Divide error", and the game ends); here the
+ * quotient is truncated, reported once for each instruction, or with WC_STRICT the program stops. */
+extern int wc_strict;
 _Noreturn void cpu_div0(uint32_t at);
-static inline uint64_t udiv(uint64_t a, uint64_t b, uint32_t at) { if (!b) cpu_div0(at); return a / b; }
+void cpu_div_overflow(uint32_t at);
+static inline uint64_t udiv(uint64_t a, uint64_t b, int size, uint32_t at)
+{
+	if (!b) cpu_div0(at);
+	uint64_t q = a / b;
+	if (size >= 2 && shr(q, 4 * (uint64_t)size)) cpu_div_overflow(at);
+	return q;
+}
 static inline uint64_t urem(uint64_t a, uint64_t b, uint32_t at) { if (!b) cpu_div0(at); return a % b; }
 static inline uint64_t sdiv(uint64_t a, uint64_t b, int size, uint32_t at)
 {
 	if (!b) cpu_div0(at);
-	return (uint64_t)(sx(a, size) / sx(b, size));
+	int64_t x = sx(a, size), y = sx(b, size);
+	uint64_t q = y == -1 ? 0 - (uint64_t)x : (uint64_t)(x / y); /* INT64_MIN / -1 wraps */
+	if (size >= 2 && sx(q, size / 2) != (int64_t)q) cpu_div_overflow(at);
+	return q;
 }
 static inline uint64_t srem(uint64_t a, uint64_t b, int size, uint32_t at)
 {
 	if (!b) cpu_div0(at);
-	return (uint64_t)(sx(a, size) % sx(b, size));
+	int64_t y = sx(b, size);
+	return y == -1 ? 0 : (uint64_t)(sx(a, size) % y);
 }
 
 /* Enter the recompiled code: run() at a runtime linear address (computed by the program, e.g. an

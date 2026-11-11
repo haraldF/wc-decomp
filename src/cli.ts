@@ -21,7 +21,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { flatten, type Manifest } from "./flatten.ts";
@@ -50,6 +50,8 @@ const { positionals, values } = parseArgs({
 interface Game {
   exe: string; dir: string; sha256: string; out: string; entries: string; rates: number; hooks?: number[]; roll: number; cycles: number;
   loadSeg: number;
+  /** p-code ops the generator can't translate in it, known to be harmless (data decoded as code) */
+  unhandled?: number;
 }
 const GAMES: Record<string, Game> = {
   // Wing Commander with the Secret Missions 1 (GOG)
@@ -57,7 +59,7 @@ const GAMES: Record<string, Game> = {
     rates: 0x1482e /* 13be:0c4e */, hooks: [0x3aa20 /* the AI, ovl09_28d0 */, 0x3b496 /* turning, ovl11_0606 */, 0x331fb /* radio queue, ovl02_2efb */, 0x34e20 /* radio message, ovl06_0970 */], roll: 0xc3ae, cycles: 8334, loadSeg: 0x200 },
   // The Secret Missions 2: Crusade, a program of its own
   sm2: { exe: "SM2.EXE", dir: "../game", sha256: "900f379b04c7b6f11ae08cf84ca278b9260df8ed81d038cdb3907bbf136cd84d", out: "sm2", entries: "entries-sm2.txt",
-    rates: 0x147b8 /* 13bb:0c08 */, roll: 0xc694, cycles: 8334, loadSeg: 0x200 },
+    rates: 0x147b8 /* 13bb:0c08 */, roll: 0xc694, cycles: 8334, loadSeg: 0x200 , unhandled: 9 /* LTR, LLDT, WRMSR...: data decoded as code, in seg_unknown.c */ },
   // Wing Commander II: Vengeance of the Kilrathi (GOG), a new engine (Borland C++ 2.0)
   wc2: { exe: "WC2.EXE", dir: "../game2", sha256: "0eb4e54e97a29266b31ec73a149aa5f4a1a32e6b1a1aea74d287f0bfd890393f", out: "wc2",
     entries: "entries-wc2.txt", rates: 0, roll: 0, cycles: 12000 /* 8334 felt sluggish, 14400 smoother, 12000 better */,
@@ -130,23 +132,43 @@ function writeDriverList(drivers: Driver[]): void {
 
 const wcExe = path.join(out, "bin", gameName);
 const gameDir = path.dirname(exePath);
+// p-code the generator has no translation for, by program (Game.unhandled; SM2.EXE's 9 are data
+// decoded as code, the others have none). More means code it can't translate.
+/** Runs the generator, which writes its summary last: analyzeHeadless succeeds even when the
+ * script throws, so without the summary the generator didn't finish. */
+async function generate(args: string[], summaryFile: string, what: string): Promise<void> {
+  rmSync(summaryFile, { force: true });
+  await runHeadless(findGhidra(), args);
+  if (!existsSync(summaryFile)) throw new Error(`the generator (WcRecomp.java) didn't finish ${what}: see Ghidra's output above`);
+  const s = JSON.parse(readFileSync(summaryFile, "utf8")) as { unhandled: number; missingHooks: string[] };
+  if (s.missingHooks.length) {
+    throw new Error(`${what}: the hooks at ${s.missingHooks.join(", ")} aren't at an instruction of the recompiled code, ` +
+      "so they would never be called");
+  }
+  const known = what === game.exe ? game.unhandled ?? 0 : 0;
+  if (s.unhandled > known) {
+    throw new Error(`the generator met ${s.unhandled} p-code ops it can't translate in ${what} (${known} are known): ` +
+      'see "unhandled" in the generated C');
+  }
+}
+
 const doRecomp = async (): Promise<void> => {
   mkdirSync(recompDir, { recursive: true });
-  await runHeadless(findGhidra(), [
+  await generate([
     projectDir, projectName,
     "-process", path.basename(flatExe), "-noanalysis", "-readOnly",
     "-scriptPath", scriptPath,
     "-postScript", "WcRecomp.java", manifestPath, recompDir, entriesFile,
     [...(game.rates ? [game.rates] : []), ...(game.hooks ?? [])].map((h) => h.toString(16)).join(","),
-  ]);
+  ], path.join(recompDir, "summary.json"), game.exe);
   const drivers = readDrivers();
   for (const d of drivers) {
-    await runHeadless(findGhidra(), [
+    await generate([
       projectDir, `${projectName}/loaded`,
       "-process", d.file, "-noanalysis", "-readOnly",
       "-scriptPath", scriptPath,
       "-postScript", "WcRecomp.java", "driver", recompDir, d.name, entriesFile,
-    ]);
+    ], path.join(recompDir, `summary_${d.name}.json`), `driver ${d.name}`);
   }
   writeDriverList(drivers);
   await doBuild();
