@@ -2,6 +2,7 @@
  * screen, which in mode 13h is 640x200 (x doubled), like Microsoft's driver. */
 #include <stdatomic.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "host.h"
 #include "net.h"
@@ -96,6 +97,64 @@ static void drain(void)
 	atomic_store_explicit(&events_head, head, memory_order_release);
 }
 
+/* The program's event handler (AX=0Ch, 14h; Privateer moves its pointer only by it): a far
+ * procedure called like an interrupt, between instructions, when the host's mouse changes. */
+static uint16_t handler_mask, handler_seg, handler_off;
+static int in_handler;
+
+void ems_irq(int enter);
+
+static void push16(uint16_t v)
+{
+	uint16_t sp = (uint16_t)(rd(R_SP, 2) - 2);
+	wr(R_SP, 2, sp);
+	mwr(lin(rd(R_SS, 2), sp), 2, v);
+}
+
+/* From irq_poll, with interrupts enabled: the events since the last call, to the handler if its mask
+ * takes them (bits: 1 moved, 2/4 left pressed/released, 8/16 right, 32/64 middle). */
+void mouse_poll(void)
+{
+	if (!handler_mask || in_handler ||
+		atomic_load_explicit(&events_head, memory_order_relaxed) == atomic_load_explicit(&events_tail, memory_order_acquire)) {
+		return;
+	}
+	int ox = x, oy = y, omx = mickey_x, omy = mickey_y;
+	uint16_t op[3], orl[3];
+	for (int b = 0; b < 3; b++) {
+		op[b] = presses[b];
+		orl[b] = releases[b];
+	}
+	drain();
+	uint16_t cond = x != ox || y != oy ? 1 : 0;
+	for (int b = 0; b < 3; b++) {
+		if (presses[b] != op[b]) cond |= (uint16_t)(2 << (2 * b));
+		if (releases[b] != orl[b]) cond |= (uint16_t)(4 << (2 * b));
+	}
+	if (wc_trace) fprintf(stderr, "wc: mouse events %02x (handler takes %02x) at %d,%d buttons %d\n", cond, handler_mask, x, y,
+		buttons);
+	if (!(cond & handler_mask)) return;
+	static uint8_t saved[sizeof R];
+	memcpy(saved, R, sizeof R);
+	wr(R_AX, 2, cond);
+	wr(R_BX, 2, buttons); /* as they are: a click shows in the events */
+	wr(R_CX, 2, (uint16_t)x);
+	wr(R_DX, 2, (uint16_t)y);
+	wr(R_SI, 2, (uint16_t)(mickey_x - omx));
+	wr(R_DI, 2, (uint16_t)(mickey_y - omy));
+	push16(0xf000); /* back to the BIOS entries' segment, as from an interrupt */
+	push16(0x0100);
+	wr(R_CS, 2, handler_seg);
+	in_handler = 1;
+	ems_irq(1); /* an interrupt (IRQ 12) */
+	push_ret(0xf0100);
+	run((uint32_t)lin(handler_seg, handler_off));
+	pop_ret();
+	ems_irq(0);
+	in_handler = 0;
+	memcpy(R, saved, sizeof R);
+}
+
 /* The friend's view (pc.c): the commander's mouse stays out of it. */
 void mouse_view_reset(void)
 {
@@ -122,6 +181,7 @@ void mouse_int(uint32_t at)
 		x = clamp(x, min_x, max_x);
 		y = clamp(y, min_y, max_y);
 		visible = -1;
+		handler_mask = 0;
 		wr(R_AX, 2, 0xffff);
 		wr(R_BX, 2, 2);
 		break;
@@ -170,6 +230,19 @@ void mouse_int(uint32_t at)
 		wr(R_DX, 2, (uint16_t)mickey_y);
 		mickey_x = mickey_y = 0;
 		break;
+	case 0x0c: /* event handler ES:DX for the events in CX */
+	case 0x14: { /* the same, giving back the old one */
+		uint16_t m = handler_mask, s = handler_seg, o = handler_off;
+		handler_mask = cx;
+		handler_seg = (uint16_t)rd(R_ES, 2);
+		handler_off = dx;
+		if (ax == 0x14) {
+			wr(R_CX, 2, m);
+			wr(R_ES, 2, s);
+			wr(R_DX, 2, o);
+		}
+		break;
+	}
 	case 0x24: /* driver version 8.0, PS/2 mouse */
 		wr(R_BX, 2, 0x0800);
 		wr(R_CX, 2, 0x0400);

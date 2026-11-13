@@ -318,6 +318,8 @@ creation, the quarters and flight (first mission: no missing code in a scripted 
 window (no time limit, normal speed, restarts after each recompile).
 
 The Secret Missions 2 (`SM2.EXE`) run too, built the same way with `--game sm2` (see below).
+Privateer (`PRCD.EXE`, `--game priv`, see below) runs through the intro and the main menu, a new
+game and from Achilles into space (headless, scripted), with Origin's EMS driver JEMM emulated.
 The same runs in the browser (`npm run web`, see below). Sound via Nuked-OPL3 (LGPL) on 388h/389h and libmt32emu (LGPL) behind an MPU-401 at 330h/331h —
 not DOSBox Staging's audio code (GPL, tied to its mixer).
 
@@ -512,6 +514,106 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   the database by 14000; `14100:+t,14106:-t,14500:@120.85,14550:+lmb,14556:-lmb` (Crusade), `wc1` +
   Enter from 15000, pilot row 1 `15450:@120.44,15500:+lmb,15506:-lmb`, first name from 16000: the
   quarters ~600 ticks later. Checked by saving (savegame.wc2: 58 missions, 594 kills) and into flight.
+
+## Privateer (PRCD.EXE, ../game-privateer/game)
+
+- GOG's Mac package (`wing_commander____privateer___enUS_1_0_33062.pkg`): `pkgutil --expand-full`, the
+  game in `package.pkg/Scripts/payload/Contents/Resources/game/`, the CD image `GAME.GOG` (ISO 9660,
+  `7z x`: PRIV.TRE, RF.TRE, PSFONTS.CAT/INF, X.LBM). The game folder holds both: DOS drive letters
+  are ignored (dos.c), so `PRIV.CFG`'s `=D:priv.tre` finds PRIV.TRE there. The game never asks for
+  MSCDEX (no INT 2Fh). `--game priv`, output `out/priv/`, `entries-priv.txt`.
+- `PRIV.EXE` is a loader (386 and XMS check, installs Origin's EMS driver JEMM from JEMM.OVL, runs
+  prcd.exe; refuses when an EMS driver is there). The game is `PRCD.EXE` (GOG SHA-256 84d7b3b3...),
+  Borland C++ 3.x (1991 library), 183 VROOM overlays / 2204 entries, DGROUP 6E4Dh, SS:SP 750Eh:0080h,
+  loaded at 0200h (DS = 704Dh). 386 code in real mode throughout (66h/67h prefixes, FS/GS, MOVZX,
+  SHLD...): Ghidra's real-mode language and the generator handle it (R[] holds EAX, FS 108h, GS 10Ah).
+- Flattened, the overlays reach E50B0h at 1000:0000: more than conventional memory. `flatten` allows up
+  to F000:0000; `main.c` puts only what is below A000:0000 into memory (the overlays there are just
+  the initial heap), all of it into the pristine copy. 20561 relocations (relocs.bin up to 65536).
+- No room left for drivers below 1 MB: their virtual segments go past FFFFh (d1f000, d2f000...):
+  Ghidra imports them at F000:0000 (the low 16 bits), WcRecomp moves their code addresses (F_, L_,
+  P_, 0x... with 5 digits; constants carry ULL and stay) up by the rest, and the program's recompile
+  skips entries past 1 MB.
+- JEMM (ems.c). The game checks it with INT 15h AX=1209h BX="AC" (AX=0, BX=1209h back) and drives it
+  with more such commands (BX = two letters, low byte first): "MS" switches into JEMM's mode, "ms"
+  back to plain real mode (BX = whether it was on), "FF" gives ES:DI = the mode byte (0060:0000
+  here, below 0280h: the game's count of low memory pages to map with the non-standard INT 67h
+  AX=5002h comes out <= 0 and it skips that), "FS" sets its divide error handler (636b:0016),
+  "SG"/"RS"/...: AX=0. In JEMM's mode the EMS page frame is A000:0000 to the end of the first MB,
+  24 pages (AH=41h says A000; AH=44h/50h take pages 0-23): 18 hold the game's far heap, 6 are
+  windows. Not B000 (with the HMA): the game normalizes frame pointers to seg = linear >> 4, which
+  wraps above 1 MB. Plain real mode has the usual 4-page frame at E000. The game spends its time in
+  JEMM's mode; it switches to plain real mode for DOS file reads into EMS (156a:01c8) and the BIOS.
+- The VGA memory in JEMM's mode is the HMA: the frame is below B000h, so the game makes its screen
+  FFFF:0010 (5f91:0588, FUN_61ad_019a with 0x10ffff), linear 100000h, and copies its frames there;
+  JEMM pages it onto the VGA. The A20 line is on (`wc_amask`, wc_rt.h: M is 110010h bytes, lin()
+  and mrd/mwr mask with it; set at the first JEMM call; with it off, clearing the screen wrapped onto
+  the interrupt vectors).
+- JEMM runs hardware interrupt handlers in plain real mode (`ems_irq()` around IRQs in pc.c and the
+  mouse handler; back to JEMM's mode after). There the game's EMS code sees the mode byte 0 and maps
+  through the 4-page frame without touching its own record of JEMM's 24 pages (DS:68a4), and the
+  handlers' AH=47h/48h (the sound sequencer: ~500 pairs a second) save and restore those 4 pages.
+  In JEMM's mode they took windows in the 24-page frame and either the game's record went stale (48h
+  restoring all 24: "Error #1911" on a TRE read, or fatal 1509) or the interrupted code's windows
+  changed under it (4 pages: the heap check, "Error Code: 1407"), in most runs.
+- The game maps one EMS page into two physical pages at once (a heap page and a window: 268000 times
+  before the menu), which copying pages in and out can't keep in step: from the first JEMM call on
+  (natively) the EMS store, the upper memory's real contents and the HMA's are one shared file, and
+  every 16 KB of A0000h-10FFFFh is an mmap(MAP_FIXED|MAP_SHARED) of the page it shows (M is 16 KB
+  aligned; 16 KB is the Mac's page size and EMS's). Switching modes remaps the 28 slots. Not before
+  that call: WC1's two-player view forks, and must not share memory with the game. The web build
+  keeps copying (aliases go wrong there). `ems_vram()` (vga.c, screenshots) is the real VGA memory.
+- INT 67h AX=DE06h (VCPI: physical address of a page; the SB driver's DMA buffer) answers the
+  linear address, DE09h (the debug registers, its "range watch" debugging) success.
+- DOS memory (dos.c): the game shrinks its block (AH=4Ah) and allocates the rest (AH=48h BX=FFFFh,
+  then what is offered); 48h/49h/4Ah now keep a list of blocks below A000h (the program's block alone
+  still always resizes, as before, for the other games).
+- Code on the stack: Borland's int86() writes `push bp; int n; pop bp; retf` into its frame and
+  far-calls it, the EMS calls `mov bp,[bp-22h]; int 67h; retf 2`: `int_thunk()` (pc.c) runs such code
+  when CS = SS. discover took the second for a driver once (DGROUP starts with a zero word too): an
+  Origin driver now needs its first table entry >= 200h.
+- Generator: Ghidra reads `CALLF [BP-4]` through DS (int86 again); a BP-based operand without a prefix
+  now uses SS (29 in PRCD.EXE, 2 in WC.EXE). The sound code jumps with `push dx; push ax; retf`
+  (a function table lookup): a RETF right after two pushes (or one 32-bit push), or a RET after one,
+  is a jump to what was pushed.
+- Near calls through variables (the sprite code picks its decoder: `mov word ss:[4938],0470h` ...
+  `call ss:[4938]`, and `mov di,[46e0]; add di,4222h; call ss:[di]` through a table in DGROUP):
+  `storedCallTargets()` seeds them in the program (Ghidra's functions and the fragments, repeated
+  until nothing new turns up; 49 in PRCD.EXE, 1 in WC.EXE). They had come up one random run at a time.
+- Code reached through pointers: `entries-priv.txt` starts with the far code pointers in the data
+  (relocated segment words naming a code segment, the offset before them: vtables, the startup
+  tables, callbacks), less those into stub headers or data (they decoded into x87 and system
+  instructions); then what discover found.
+- Sound: `SOUND.CFG` is `music effects` (GOG: `3 1`), then port/IRQ/DMA lines for each (816 = 330h;
+  544 = 220h, IRQ 5, DMA 1). Music 1 and 3 load ROLAND.DRV (3 without sending the MT-32 timbres,
+  probably General MIDI), 2 ADLIB.DRV; effects 1 SB.DRV. They are Miles Design AIL 2 drivers from
+  PRIV.TRE (..\..\DATA\SOUND\): the first word points to (function number, offset) pairs ended by
+  FFFFh, then "Copyright (C) 1991,1992 Miles Design". discover and the generator take that header too.
+- The Roland driver waits for the MPU-401's acknowledgement with interrupts off: the MPU at 330h is
+  now always there (mt32.c), as in GOG's DOSBox; without WC_MT32 its MIDI goes nowhere. main.c
+  doesn't add WC1's "r" for WC_MT32 here: SOUND.CFG picks the card, and "r" is Righteous Fire.
+- Joystick: GOG's JOYA.DAT calibrates the stick to 0..80h, centre 40h, counted in reads of port 201h
+  like WC1 (joystick.c); the emulated stick's centre of 256 reads was full right and down, and the
+  game moved the pointer there all the time (mouse clicks never landed). `stick: 64` in cli.ts'
+  GAMES (wc_program.stick) is Privateer's centre.
+- Mouse: the game never polls AX=3; it installs an event handler (AX=14h, mask 3Fh, 71db:000b) and
+  sets the position (AX=4) all the time. mouse.c calls handlers (AX=0Ch/14h) between instructions
+  when the host's mouse changed and interrupts are on (irq_poll), with the buttons as they are (the
+  "clicked" latch that AX=3 clears would hold a release back forever).
+- DOS AH=2Bh/2Dh (set date/time; the game sets the time on exit after its timer ran fast): ignored.
+- Runs differ: the game seeds its randomness from the clock (DOS time), so the instruction clock
+  doesn't make it deterministic. The timer runs at 600 Hz (AIL), so WC_KEYS ticks are 1/600 s.
+- Scripted (instruction clock, WC_MOUSE=1, the scratch folder): the intro (cockpit scene, ...) and the
+  main menu by tick 95000; `N` held 30 ticks at 100000 starts a new game ("register your new
+  Quine 4000"); a name and a callsign typed from 103000 (keys held 30, 150 apart, each + Enter)
+  reach Achilles' landing pad by 108000; a click on the ship (`116000:@160.110,116300:+lmb,
+  116400:-lmb`, "Launch") the cockpit in space by 125000.
+- The game writes into its folder (a new game: PLAYTYPE.IFF, DELTSECT.IFF, PLAYSCOR.IFF; saves; the
+  options): test in a copy (`--exe copy/PRCD.EXE`; ../game-privateer/test has symlinks to the TREs).
+- Righteous Fire (`priv r`, RF.TRE, RF.CFG) is not tried yet: PRCD.EXE gets the arguments after the
+  game folder (`out/priv/bin/priv <folder> r`).
+- The web build doesn't do Privateer yet: no shared mappings there (aliased EMS pages), and the
+  page knows WC.EXE and SM2.EXE only.
 
 ## Two players (runtime/net.c; Wing Commander 1 only)
 

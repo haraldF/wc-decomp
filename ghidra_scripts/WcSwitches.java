@@ -276,7 +276,12 @@ public class WcSwitches extends GhidraScript {
 		for (int i = 0; i < cases; i++) {
 			Address entry = space.getAddress(seg.seg, table + i * 2);
 			if (getInstructionContaining(entry) == null && getDataContaining(entry) == null) {
-				createWord(entry);
+				try {
+					createWord(entry);
+				}
+				catch (Exception e) {
+					// an instruction starts in its second byte (PRCD.EXE): leave the bytes as they are
+				}
 			}
 		}
 		// Drop targets Ghidra's own switch analysis guessed from the misread table; some come out

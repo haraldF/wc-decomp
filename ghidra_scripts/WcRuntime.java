@@ -128,10 +128,13 @@ public class WcRuntime extends GhidraScript {
 		}
 
 		Function entry = getFunctionAt(entryPoint(manifest, load));
-		Function exit = startup(entry);
+		if (entry == null) {
+			entry = createFunction(entryPoint(manifest, load), "entry");
+		}
+		Function exit = entry != null ? startup(entry) : null;
 		Function abort = abort();
 		Function exitToDos = dosWrappers().get(0x4c);
-		repairNoReturn(List.of(exit, abort, exitToDos));
+		repairNoReturn(java.util.Arrays.asList(exit, abort, exitToDos)); // any may be null
 		if (exit != null) {
 			atexit(exit);
 		}

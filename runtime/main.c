@@ -67,13 +67,17 @@ static size_t read_file(const char *path, uint8_t *dst, size_t max)
 	return n;
 }
 
-/* Load image.bin at load_seg and apply the relocations in relocs.bin, as DOS would. */
+/* Load image.bin at load_seg and apply the relocations in relocs.bin, as DOS would. The flattened
+ * overlays can reach past conventional memory (Privateer's do): only what fits below A000:0000 goes
+ * into memory (the overlays there are only initial heap contents), all of it into the pristine copy
+ * that overlay code reads its constants from. */
 static void load_image(const char *dir, unsigned load_seg)
 {
 	char path[PATH_MAX];
 	snprintf(path, sizeof path, "%s/image.bin", dir);
 	uint32_t base = load_seg * 16;
-	size_t size = read_file(path, M + base, MEM_SIZE - base);
+	static uint8_t image[MEM_SIZE];
+	size_t size = read_file(path, image, MEM_SIZE - base);
 	if (!size) {
 		fprintf(stderr, "wc: %s is empty\n", path);
 		exit(1);
@@ -82,15 +86,24 @@ static void load_image(const char *dir, unsigned load_seg)
 	wc_image_lo = base;
 	wc_image_hi = base + (uint32_t)size;
 
-	static uint32_t relocs[16384];
+	static uint32_t relocs[65536];
 	snprintf(path, sizeof path, "%s/relocs.bin", dir);
 	size_t n = read_file(path, (uint8_t *)relocs, sizeof relocs) / 4;
-	for (size_t i = 0; i < n; i++) {
-		uint32_t a = relocs[i] - BUILD_SEG * 16 + base;
-		mwr(a, 2, mrd(a, 2) + (uint64_t)wc_reloc);
+	if (n == sizeof relocs / sizeof relocs[0]) {
+		fprintf(stderr, "wc: too many relocations in %s\n", path);
+		exit(1);
 	}
+	for (size_t i = 0; i < n; i++) {
+		uint32_t a = relocs[i] - BUILD_SEG * 16;
+		uint16_t w = (uint16_t)(image[a] | image[a + 1] << 8);
+		w = (uint16_t)(w + wc_reloc);
+		image[a] = (uint8_t)w;
+		image[a + 1] = (uint8_t)(w >> 8);
+	}
+	size_t below = TOP_SEG * 16 - base;
+	memcpy(M + base, image, size < below ? size : below);
 	wc_image_copy = malloc(size);
-	memcpy(wc_image_copy, M + base, size);
+	memcpy(wc_image_copy, image, size);
 }
 
 /* The arguments after the game folder, as the DOS command line (in the PSP, at most 126 characters). */
@@ -106,8 +119,9 @@ static void set_command_line(uint8_t *psp, int argc, char **argv)
 		}
 		n += (size_t)w;
 	}
-	/* WC_MT32 (mt32.c): "r" picks the Roland; the game reads its arguments after the config's words */
-	if (getenv("WC_MT32") && n + 2 < sizeof line) {
+	/* WC_MT32 (mt32.c): "r" picks the Roland; the game reads its arguments after the config's words.
+	 * Not for Privateer, where SOUND.CFG picks the music card and "r" means Righteous Fire. */
+	if (getenv("WC_MT32") && strcmp(wc_program.exe, "PRCD.EXE") && n + 2 < sizeof line) {
 		memcpy(line + n, " r", 3);
 		n += 2;
 	}

@@ -17,8 +17,12 @@ enum {
 };
 
 #define MEM_SIZE 0x100000u
+/* With the A20 line on, FFFF:0010 to FFFF:FFFF reach past 1 MB (the HMA): Privateer's EMS driver turns
+ * it on (ems.c) and the game keeps its screen's back buffer there. wc_amask: FFFFFh while it is off. */
+#define MEM_A20 0x110000u
+extern uint32_t wc_amask;
 extern uint8_t R[0x400];
-extern uint8_t M[MEM_SIZE + 16];
+extern uint8_t M[MEM_A20 + 16];
 extern uint64_t wc_icount;
 extern int wc_trace;
 
@@ -37,6 +41,7 @@ struct wc_program {
 	uint16_t roll;
 	uint32_t cycles; /* instructions per ms by default (WC_CYCLES) */
 	uint16_t load_seg; /* where it is loaded by default (WC_LOAD_SEG) */
+	uint16_t stick; /* the joystick's centre in reads of port 201h (0: 256, joystick.c) */
 };
 extern const struct wc_program wc_program;
 /* Called by the generated code before the instructions cli.ts names (wc_program.rates). */
@@ -68,14 +73,14 @@ void mem_write_hook(uint32_t addr, int size);
 extern uint32_t wc_watch; /* WC_WATCH: report writes to this linear address (0 = off) */
 extern uint32_t wc_last_ins;
 void watch_hit(uint32_t addr, int size, uint64_t value);
-static inline uint64_t mrd(uint64_t addr, int size) { uint64_t v = 0; memcpy(&v, M + (addr & 0xfffff), size); return v; }
-extern uint8_t wc_codemap[MEM_SIZE / 8]; /* bytes of recompiled driver instructions */
+static inline uint64_t mrd(uint64_t addr, int size) { uint64_t v = 0; memcpy(&v, M + (addr & wc_amask), size); return v; }
+extern uint8_t wc_codemap[MEM_A20 / 8]; /* bytes of recompiled driver instructions */
 void code_write(uint32_t addr);
 static inline void mwr(uint64_t addr, int size, uint64_t v)
 {
-	uint32_t a = (uint32_t)(addr & 0xfffff);
+	uint32_t a = (uint32_t)(addr & wc_amask);
 	memcpy(M + a, &v, size);
-	uint32_t e = (a + size - 1) & 0xfffff;
+	uint32_t e = (a + size - 1) & wc_amask;
 	if (((wc_codemap[a >> 3] >> (a & 7)) | (wc_codemap[e >> 3] >> (e & 7))) & 1) {
 		code_write(a);
 	}
@@ -92,7 +97,7 @@ static inline void mwr(uint64_t addr, int size, uint64_t v)
 extern uint8_t *wc_image_copy;
 static inline uint64_t mrd_code(uint64_t addr, int size)
 {
-	uint32_t a = (uint32_t)(addr & 0xfffff);
+	uint32_t a = (uint32_t)(addr & wc_amask);
 	if (a - wc_image_lo + (uint32_t)size <= wc_image_hi - wc_image_lo) {
 		uint64_t v = 0;
 		memcpy(&v, wc_image_copy + (a - wc_image_lo), size);
@@ -101,8 +106,13 @@ static inline uint64_t mrd_code(uint64_t addr, int size)
 	return mrd(addr, size);
 }
 
+/* VGA memory (A000:0000) as the screen shows it (ems.c: Privateer's EMS driver can map pages over it) */
+uint8_t *ems_vram(void);
+/* Privateer's EMS driver's INT 15h AX=1209h commands; 1 if it was one */
+int jemm_int15(uint32_t at);
+
 /* real-mode segment:offset -> linear address */
-static inline uint64_t lin(uint64_t seg, uint64_t off) { return (((seg & 0xffff) << 4) + (off & 0xffff)) & 0xfffff; }
+static inline uint64_t lin(uint64_t seg, uint64_t off) { return (((seg & 0xffff) << 4) + (off & 0xffff)) & wc_amask; }
 
 static inline int64_t sx(uint64_t v, int size) { int sh = 64 - 8 * size; return (int64_t)(v << sh) >> sh; }
 static inline uint64_t mask(int size) { return size >= 8 ? ~0ULL : (1ULL << (8 * size)) - 1; }

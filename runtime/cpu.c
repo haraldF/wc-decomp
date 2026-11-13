@@ -7,7 +7,9 @@
 #include "wc_rt.h"
 
 uint8_t R[0x400];
-uint8_t M[MEM_SIZE + 16];
+/* 16 KB aligned: ems.c maps EMS pages into it for Privateer */
+uint8_t M[MEM_A20 + 16] __attribute__((aligned(0x4000)));
+uint32_t wc_amask = 0xfffff;
 uint64_t wc_icount;
 int wc_trace;
 int64_t wc_reloc;
@@ -40,6 +42,7 @@ static int find_code(uint32_t linear)
 }
 
 int bios_entry(uint32_t linear);
+int int_thunk(uint32_t linear);
 
 /* Generated: overlay segments (relative to the load segment) and the size of the original image. */
 extern const uint32_t wc_overlay_count;
@@ -49,7 +52,7 @@ extern const uint32_t wc_program_size;
 extern const struct wc_driver *const wc_drivers[];
 extern const uint32_t wc_driver_count;
 
-uint8_t wc_codemap[MEM_SIZE / 8];
+uint8_t wc_codemap[MEM_A20 / 8];
 
 /* Whether a transfer to linear with the current CS reaches the program (recompiled) rather than
  * code it loaded at runtime. Heap memory can overlap the flattened overlays' addresses, but
@@ -219,6 +222,9 @@ void run(uint32_t linear)
 		return;
 	}
 	if (!is_program(linear)) {
+		if (int_thunk(linear)) {
+			return;
+		}
 		uint32_t seg = (uint32_t)rd(R_CS, 2), off = (uint32_t)(linear - seg * 16);
 		const struct wc_driver *d = driver_at((uint16_t)seg);
 		if (d) {
@@ -303,7 +309,7 @@ static void screenshot(void)
 	FILE *f = path ? fopen(path, "wb") : NULL;
 	if (f) {
 		fwrite(wc_palette, 1, sizeof wc_palette, f);
-		fwrite(M + 0xa0000, 1, 320 * 200, f);
+		fwrite(ems_vram(), 1, 320 * 200, f);
 		fclose(f);
 	}
 }

@@ -1,6 +1,7 @@
 # wc-decomp
 
-Decompiles Wing Commander's `WC.EXE` (and the Secret Missions 2's `SM2.EXE`) to C with Ghidra,
+Decompiles Wing Commander's `WC.EXE` (and the Secret Missions 2's `SM2.EXE`, Wing Commander II's
+and Privateer's programs) to C with Ghidra,
 driven from TypeScript, and recompiles it into a native or WebAssembly program.
 
 ## Building it yourself
@@ -60,6 +61,21 @@ Special Operations 1 save in the personnel database (click the line: the T key d
 ```bash
 npm run decompile -- --game so1 && npm run recomp -- --game so1
 npm run play -- --game so1      # or out/so1/bin/so1 ../game2
+```
+
+Wing Commander: Privateer (GOG's DOS release; `PRCD.EXE`, SHA-256
+`84d7b3b39ea7a987d5c60a6e4462e8395c6343a8bb0554b2d0b0d6b0ea9e4eab`) works the same way with
+`-- --game priv` (into `out/priv/`, entry points in `entries-priv.txt`). GOG ships it for the Mac as a
+DOSBox package: unpack it with `pkgutil --expand-full`, take the folder
+`package.pkg/Scripts/payload/Contents/Resources/game/` and extract its CD image `GAME.GOG` (ISO 9660,
+`7z x`) into the same folder, so `PRIV.TRE` sits next to `PRCD.EXE` (by default
+`../game-privateer/game`). `PRIV.EXE` only installs Origin's EMS driver JEMM and starts `PRCD.EXE`;
+here the runtime plays JEMM's part. Its music and sound use Miles Design drivers from `PRIV.TRE`
+(GOG's `SOUND.CFG`: Roland MT-32 at 330h, which `WC_MT32` makes heard, and the Sound Blaster).
+
+```bash
+npm run decompile -- --game priv && npm run recomp -- --game priv
+npm run play -- --game priv     # or out/priv/bin/priv ../game-privateer/game
 ```
 
 Its music plays on the AdLib, and the speech (the cutscenes' dialogue and the wingmen's messages in

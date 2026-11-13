@@ -503,6 +503,8 @@ static void poll_devices(void)
 }
 
 static void deliver(uint32_t at);
+void mouse_poll(void);
+void ems_irq(int enter);
 
 /* CPU speed: Wing Commander paces animation and space flight by CPU speed, so run at most
  * cycles_per_ms instructions per millisecond of real time, like DOSBox's "cycles". WC_CYCLES sets
@@ -612,6 +614,7 @@ void irq_poll(uint32_t at)
 		if (view_child && wc_icount - view_start > 40000000u) _exit(0); /* lost: the next one may do better */
 		throttle();
 		poll_devices();
+		if (rd(R_IF, 1)) mouse_poll();
 	}
 	deliver(at);
 }
@@ -689,7 +692,7 @@ static void swap_picture(const char *what)
 	FILE *f = fopen(path, "wb");
 	if (f) {
 		fwrite(wc_palette, 1, sizeof wc_palette, f);
-		fwrite(M + 0xa0000, 1, 320 * 200, f);
+		fwrite(ems_vram(), 1, 320 * 200, f);
 		fclose(f);
 	}
 }
@@ -1429,7 +1432,9 @@ static void deliver(uint32_t at)
 				kbd_data = kbd_queue[kbd_head];
 				kbd_head = (uint8_t)((kbd_head + 1) % sizeof kbd_queue);
 			}
+			ems_irq(1);
 			interrupt((uint8_t)(8 + irq), runtime_addr(at), at);
+			ems_irq(0);
 			return;
 		}
 	}
@@ -1649,6 +1654,49 @@ static void bios(uint8_t n, uint32_t at)
 		set_flags_word((uint16_t)(keep | (f & 0x0700)));
 	}
 	(void)ip; /* the C caller continues at the right place */
+}
+
+/* Code Privateer writes onto its stack and far-calls: Borland's int86() "push bp; int n; pop bp; retf",
+ * and "mov bp,[bp-22h]; int 67h; retf 2" (its EMS calls). Run such a thunk: those few instructions,
+ * up to the return. 0 if the code at linear isn't one. */
+int int_thunk(uint32_t linear)
+{
+	uint32_t a = linear & wc_amask;
+	if (rd(R_CS, 2) != rd(R_SS, 2) || (M[a] != 0x55 && M[a] != 0x8b)) return 0; /* on the stack only */
+	for (int n = 0; n < 8; n++) {
+		const uint8_t *p = M + (a & wc_amask);
+		uint16_t sp = (uint16_t)rd(R_SP, 2), ss = (uint16_t)rd(R_SS, 2);
+		if (p[0] == 0x55) { /* push bp */
+			wr(R_SP, 2, (uint16_t)(sp - 2));
+			mwr(lin(ss, sp - 2), 2, rd(R_BP, 2));
+			a += 1;
+		}
+		else if (p[0] == 0x5d) { /* pop bp */
+			wr(R_BP, 2, mrd(lin(ss, sp), 2));
+			wr(R_SP, 2, (uint16_t)(sp + 2));
+			a += 1;
+		}
+		else if (p[0] == 0x8b && p[1] == 0x6e) { /* mov bp,[bp+disp8] */
+			wr(R_BP, 2, mrd(lin(ss, rd(R_BP, 2) + (uint64_t)(int8_t)p[2]), 2));
+			a += 3;
+		}
+		else if (p[0] == 0xcd) { /* int n */
+			cpu_int(p[1], a, a + 2);
+			a += 2;
+		}
+		else if (p[0] == 0xcb || p[0] == 0xca) { /* retf [n] */
+			wr(R_CS, 2, mrd(lin(ss, sp + 2), 2));
+			wr(R_SP, 2, (uint16_t)(sp + 4 + (p[0] == 0xca ? p[1] | p[2] << 8 : 0)));
+			return 1;
+		}
+		else if (n == 0) {
+			return 0;
+		}
+		else {
+			cpu_fail("unknown instruction in code on the stack at", a);
+		}
+	}
+	return 0;
 }
 
 int bios_entry(uint32_t linear)

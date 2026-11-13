@@ -16,3 +16,5 @@ db000 981be19b07c8b0ce  the same, as SO1.EXE loads it
 db000 11be51afd230c445  the same, as SO2.EXE loads it
 d7000 4b40d9e2482f67b0  the same, as SO1.EXE loads it
 d7000 ef2cdcf7829f21ce  the same, as SO2.EXE loads it
+d1f000 c184e06df2830f46
+d2f000 02a37c662176aff6

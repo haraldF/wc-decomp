@@ -1,6 +1,6 @@
 // Before analysis of a captured driver image: disassemble and create functions at the entry
 // points from the entries file that fall into this image (linear hex addresses, one per line).
-// Args: <entries file>
+// Args: <entries file> [the driver's virtual segment, hex, when past FFFFh: d1f000 -> 1f000]
 //@category WC
 
 import java.nio.file.Files;
@@ -23,6 +23,7 @@ public class WcDriverEntries extends GhidraScript {
 		// runtime, so they must not include heap data that differs from run to run.
 		setAnalysisOption(currentProgram, "Function Start Search", "false");
 		int seg = ((SegmentedAddress) currentProgram.getMinAddress()).getSegment();
+		long base = getScriptArgs().length > 1 ? Long.parseLong(getScriptArgs()[1], 16) * 16 : seg * 16L;
 		SegmentedAddressSpace space = (SegmentedAddressSpace) currentProgram.getAddressFactory().getDefaultAddressSpace();
 		int n = 0;
 		for (String line : Files.readAllLines(file)) {
@@ -30,7 +31,7 @@ public class WcDriverEntries extends GhidraScript {
 			if (line.isEmpty()) {
 				continue;
 			}
-			long off = Long.parseLong(line, 16) - seg * 16L;
+			long off = Long.parseLong(line, 16) - base;
 			if (off < 0 || off >= 0x10000) {
 				continue;
 			}

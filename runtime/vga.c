@@ -64,7 +64,7 @@ void vga_poll(uint64_t now)
 	if (frame == frame_taken) return;
 	frame_taken = frame;
 	pthread_mutex_lock(&frame_lock);
-	memcpy(frame_pixels, M + 0xa0000, sizeof frame_pixels);
+	memcpy(frame_pixels, ems_vram(), sizeof frame_pixels);
 	memcpy(frame_palette, wc_palette, sizeof frame_palette);
 	frame_count++;
 	pthread_mutex_unlock(&frame_lock);
@@ -134,7 +134,7 @@ void vga_bios(uint32_t at)
 		uint8_t mode = al & 0x7f;
 		M[0x449] = mode;
 		mwr(0x44a, 2, mode == 0x13 || mode <= 1 ? 40 : 80);
-		if (mode == 0x13 && !(al & 0x80)) memset(M + 0xa0000, 0, 0x10000);
+		if (mode == 0x13 && !(al & 0x80)) memset(ems_vram(), 0, 0x10000);
 		/* the first 16 DAC entries: the default EGA colours */
 		static const uint8_t ega[16][3] = {
 			{ 0, 0, 0 }, { 0, 0, 42 }, { 0, 42, 0 }, { 0, 42, 42 }, { 42, 0, 0 }, { 42, 0, 42 }, { 42, 21, 0 },

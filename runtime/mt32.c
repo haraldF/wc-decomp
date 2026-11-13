@@ -2,7 +2,9 @@
  * MIDI goes to munt's libmt32emu (third_party/munt, LGPL 2.1+). WC_MT32=folder turns it on with the
  * ROM images found there (and in its subfolders); main.c then also tells the game to use it ("r").
  * WC_MT32_MACHINE picks the model (munt's names: mt32_1_07, cm32l_1_02, ...), else the first one
- * the folder has ROMs for, in the order below. Samples are made like the AdLib's (opl.c). */
+ * the folder has ROMs for, in the order below. Samples are made like the AdLib's (opl.c).
+ * Without WC_MT32 the MPU-401 is still there, as in GOG's DOSBox, and the MIDI goes nowhere:
+ * Privateer's Roland driver (GOG's SOUND.CFG) waits for it with interrupts off. */
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +62,6 @@ static void reply(uint8_t v)
 
 uint64_t mt32_in(uint64_t port)
 {
-	if (!synth) return 0xff; /* no card */
 	if (port == 0x331) return replies_len ? 0x3f : 0xbf; /* bit 7 clear: data to read; bit 6 clear: ready */
 	if (!replies_len) return 0xff;
 	uint8_t v = replies[0];
@@ -70,9 +71,9 @@ uint64_t mt32_in(uint64_t port)
 
 void mt32_out(uint64_t port, uint64_t value)
 {
-	if (!synth) return;
 	uint8_t v = (uint8_t)value;
 	if (port == 0x330) {
+		if (!synth) return;
 		mt32_poll(pc_now_ns()); /* the sound up to this moment, before the message */
 		mt32emu_parse_stream(synth, &v, 1);
 		return;

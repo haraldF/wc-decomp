@@ -237,11 +237,15 @@ static int fcb_match(const char *pattern, const char *fcb)
 }
 
 /* A DOS read into, or write from, the buffer at DS:DX (up to 64 KB): past 1 MB it goes on at 0, as
- * with the A20 line off (reported once; WC_STRICT stops there), not past M. */
+ * with the A20 line off (reported once; WC_STRICT stops there), not past M. With A20 on it can't
+ * run past FFFF:FFFF. */
 static ssize_t transfer(int fd, uint32_t base, uint32_t n, int writing)
 {
 	uint32_t first = n;
-	if (base + n > MEM_SIZE) {
+	if (wc_amask != 0xfffff) { /* A20 on: no further than the HMA's end */
+		if (base + n > MEM_A20) n = first = MEM_A20 - base;
+	}
+	else if (base + n > MEM_SIZE) {
 		static int reported;
 		if (wc_strict) cpu_fail("a DOS read or write whose buffer runs past 1 MB, after instruction", wc_last_ins);
 		if (!reported++) {
@@ -310,6 +314,83 @@ static uint8_t console_char(uint32_t at)
 		extended_scan = key >> 8;
 	}
 	return (uint8_t)key;
+}
+
+/* DOS memory (AH=48h, 49h, 4Ah) below A000:0000: the program's block (at its PSP) and the blocks it
+ * allocates, each after a paragraph for DOS's memory control block (not written: nothing reads it). */
+enum { MEM_TOP = 0xa000, MAX_BLOCKS = 64 };
+static struct { uint16_t seg, paras; } blocks[MAX_BLOCKS]; /* blocks[0]: the program's */
+static int nblocks;
+
+static int block_of(uint16_t seg)
+{
+	if (!nblocks) { /* the program's block: all memory, as DOS gives an EXE */
+		blocks[0].seg = wc_psp_seg;
+		blocks[0].paras = (uint16_t)(MEM_TOP - wc_psp_seg);
+		nblocks = 1;
+	}
+	for (int i = 0; i < nblocks; i++) {
+		if (blocks[i].seg == seg) return i;
+	}
+	return -1;
+}
+
+/* Paragraphs free from seg on, up to the next block (its control block) or the end of memory. */
+static uint32_t free_from(uint32_t seg, int except)
+{
+	uint32_t end = MEM_TOP;
+	for (int i = 0; i < nblocks; i++) {
+		uint32_t start = blocks[i].seg - (i ? 1u : 0u);
+		if (i != except && start >= seg && start < end) end = start;
+	}
+	return end > seg ? end - seg : 0;
+}
+
+static void dos_memory(uint8_t ah)
+{
+	uint16_t es = (uint16_t)ES, bx = (uint16_t)BX;
+	block_of(wc_psp_seg);
+	if (ah == 0x48) { /* allocate BX paragraphs: the first gap that fits, else BX = the largest */
+		uint32_t best = 0;
+		for (int i = 0; i < nblocks; i++) {
+			uint32_t after = (uint32_t)blocks[i].seg + blocks[i].paras;
+			uint32_t room = free_from(after, -1);
+			if (room > 1 && room - 1 >= bx && nblocks < MAX_BLOCKS) {
+				blocks[nblocks].seg = (uint16_t)(after + 1);
+				blocks[nblocks++].paras = bx;
+				wr(R_AX, 2, after + 1);
+				ok();
+				return;
+			}
+			if (room > 1 && room - 1 > best) best = room - 1;
+		}
+		wr(R_BX, 2, best);
+		fail_dos(8);
+		return;
+	}
+	int i = block_of(es);
+	if (i < 0) {
+		fail_dos(9);
+		return;
+	}
+	if (ah == 0x49) { /* free */
+		if (i == 0) { fail_dos(9); return; }
+		blocks[i] = blocks[--nblocks];
+		ok();
+		return;
+	}
+	uint32_t room = free_from(blocks[i].seg, i); /* 4Ah: resize */
+	if (bx > room) {
+		if (nblocks == 1) { /* the program's block alone: as before, always fits */
+			ok();
+			return;
+		}
+		wr(R_BX, 2, room);
+		fail_dos(8);
+		return;
+	}
+	blocks[i].paras = bx;
+	ok();
 }
 
 static void dos(uint32_t at)
@@ -394,6 +475,9 @@ static void dos(uint32_t at)
 		wr(R_DL, 1, 0);
 		break;
 	}
+	case 0x2b: case 0x2d: /* set date, set time (Privateer, after its timer ran fast): the host's stays */
+		wr(R_AL, 1, 0);
+		break;
 	case 0x2f: /* get DTA */
 		wr(R_ES, 2, dta >> 4);
 		wr(R_BX, 2, dta & 0xf);
@@ -552,8 +636,9 @@ static void dos(uint32_t at)
 		}
 		ok();
 		break;
-	case 0x4a: /* resize memory block: always fits */
-		ok();
+	case 0x48: case 0x49: case 0x4a: /* allocate, free, resize memory */
+		dos_memory(ah);
+		if (wc_trace) fprintf(stderr, "wc: -> CF=%llu AX=%04llx BX=%04llx\n", rd(R_CF, 1), AX, BX);
 		break;
 	case 0x4c: /* exit */
 		fflush(stdout);
@@ -655,7 +740,10 @@ void dos_int(uint64_t n, uint32_t at)
 		wr(R_AX, 2, 640);
 		return;
 	case 0x15: /* system services: the configuration (pc.c), the keyboard intercept (the key goes on) */
-		if (AH == 0xc0) {
+		if (jemm_int15(at)) {
+			/* Privateer's EMS driver */
+		}
+		else if (AH == 0xc0) {
 			wr(R_ES, 2, 0xf000);
 			wr(R_BX, 2, 0xe6f5);
 			wr(R_AH, 1, 0);

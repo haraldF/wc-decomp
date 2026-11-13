@@ -59,7 +59,7 @@ public class WcRecomp extends GhidraScript {
 
 	private final List<Segment> segments = new ArrayList<>();
 	private final Map<Long, String> entries = new HashMap<>(); // linear entry -> C function name
-	private int csFixes, nearWrapFixes, fragmentSwitches, overrideFixes, relocConstants, farJumpFixes, iretFixes, codeReads, unhandled;
+	private int csFixes, nearWrapFixes, fragmentSwitches, overrideFixes, relocConstants, farJumpFixes, iretFixes, codeReads, unhandled, bpFixes, pushReturns;
 	/** whether the instruction being translated is in an overlay */
 	private boolean inOverlay;
 	/** unique offset -> segment register the segment() producing it used (after override fixes) */
@@ -75,6 +75,9 @@ public class WcRecomp extends GhidraScript {
 	private final Set<Long> hooks = new HashSet<>();
 	/** the hooks whose instruction was emitted (each must be: the summary lists the others) */
 	private final Set<Long> hooked = new TreeSet<>();
+
+	/** The program's data segment (DGROUP) at 1000:0000, or -1. */
+	private int dgroup = -1;
 
 	/** Driver mode: the image's virtual segment, or -1 for the program itself. */
 	private int driverSeg = -1;
@@ -97,6 +100,9 @@ public class WcRecomp extends GhidraScript {
 		Path out = Path.of(args[1]);
 		Files.createDirectories(out);
 		int load = loadSegment(manifest);
+		if (manifest.has("dgroup") && !manifest.get("dgroup").isJsonNull()) {
+			dgroup = load + manifest.get("dgroup").getAsInt();
+		}
 		if (load * 16L != IMAGE_BASE) {
 			throw new IllegalStateException("expected the image at 1000:0000, not " + Integer.toHexString(load) + ":0000");
 		}
@@ -135,7 +141,10 @@ public class WcRecomp extends GhidraScript {
 			for (String line : Files.readAllLines(Path.of(args[2]))) {
 				line = line.replaceAll("#.*", "").trim();
 				if (!line.isEmpty()) {
-					seeds.add(Long.parseLong(line, 16));
+					long e = Long.parseLong(line, 16);
+					if (e < 0x100000) { // not a driver's code address past 1 MB (d1f000...)
+						seeds.add(e);
+					}
 				}
 			}
 		}
@@ -174,8 +183,27 @@ public class WcRecomp extends GhidraScript {
 			}
 		}
 		println("WcRecomp: " + gaps + " targets of functions outside every function");
+
 		nearWrapFixes = 0;
 		List<Fragment> fragments = fragments(seeds);
+		// Near calls through variables, in Ghidra's functions and the fragments decoded so far, until no new
+		// targets turn up
+		Set<Long> storedSeen = new HashSet<>();
+		for (int round = 0; round < 8; round++) {
+			List<Instruction> code = new ArrayList<>();
+			currentProgram.getListing().getInstructions(true).forEach(code::add);
+			fragments.forEach(fr -> code.addAll(fr.body));
+			List<Long> more = new ArrayList<>();
+			for (long t : storedCallTargets(code)) {
+				if (storedSeen.add(t) && !recompiled(linearToAddress(t))) more.add(t);
+			}
+			if (more.isEmpty()) {
+				break;
+			}
+			seeds.addAll(more);
+			fragments = fragments(seeds);
+		}
+		println("WcRecomp: " + storedSeen.size() + " near call targets stored in variables");
 		for (Fragment fr : fragments) {
 			entries.put(fr.entry, fname(fr.entry));
 		}
@@ -214,9 +242,9 @@ public class WcRecomp extends GhidraScript {
 		writeImage(out);
 		writeRelocs(out);
 		println(String.format("WcRecomp: %d functions + %d discovered fragments, %d instructions in %d files; " +
-			"%d CS fixes, %d near wrap fixes, %d segment override fixes, %d far jump fixes, %d IRET fixes, %d overlay code reads, " +
+			"%d CS fixes, %d near wrap fixes, %d segment override fixes, %d BP operands through SS, %d far jump fixes, %d IRET fixes, %d jumps by push and return, %d overlay code reads, " +
 			"%d relocated constants, %d unhandled p-code ops", functions.size(), fragments.size(), owner.size(),
-			files.size(), csFixes, nearWrapFixes, overrideFixes, farJumpFixes, iretFixes, codeReads, relocConstants, unhandled));
+			files.size(), csFixes, nearWrapFixes, overrideFixes, bpFixes, farJumpFixes, iretFixes, pushReturns, codeReads, relocConstants, unhandled));
 		TreeSet<Long> missing = new TreeSet<>(hooks);
 		missing.removeAll(hooked);
 		writeSummary(out.resolve("summary.json"), functions.size(), fragments.size(), owner.size(), missing);
@@ -236,6 +264,9 @@ public class WcRecomp extends GhidraScript {
 		Address start = currentProgram.getMinAddress();
 		driverSeg = ((SegmentedAddress) start).getSegment();
 		long virt = driverSeg * 16L;
+		// A driver named after a segment past FFFFh (d1f000: Privateer's image leaves no room below 1 MB)
+		// is imported at that segment's low 16 bits (F000), and its code addresses are moved up by the rest.
+		long bias = name.matches("d[0-9a-f]+") ? Long.parseLong(name.substring(1), 16) * 16 - virt : 0;
 		List<Function> functions = new ArrayList<>();
 		for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
 			functions.add(f);
@@ -245,8 +276,9 @@ public class WcRecomp extends GhidraScript {
 		if (Files.exists(entriesFile)) {
 			for (String line : Files.readAllLines(entriesFile)) {
 				line = line.replaceAll("#.*", "").trim();
-				if (!line.isEmpty() && Long.parseLong(line, 16) - virt < 0x10000 && Long.parseLong(line, 16) >= virt) {
-					seeds.add(Long.parseLong(line, 16));
+				long a = line.isEmpty() ? -1 : Long.parseLong(line, 16) - bias;
+				if (a >= virt && a - virt < 0x10000) {
+					seeds.add(a);
 				}
 			}
 		}
@@ -261,6 +293,18 @@ public class WcRecomp extends GhidraScript {
 					break;
 				}
 				seeds.add(virt + off);
+				tableEntries++;
+			}
+		}
+		// Miles Design's AIL 2 drivers (Privateer's music and sound): the first word points to a table of
+		// (function number, offset) pairs, ended by FFFFh
+		else if (new String(bytes(start.add(2), 12), java.nio.charset.StandardCharsets.ISO_8859_1).startsWith("Copyright")) {
+			int table = getShort(start) & 0xffff;
+			for (int i = table; i + 4 <= 0x10000; i += 4) {
+				if ((getShort(start.add(i)) & 0xffff) == 0xffff) {
+					break;
+				}
+				seeds.add(virt + (getShort(start.add(i + 2)) & 0xffff));
 				tableEntries++;
 			}
 		}
@@ -313,13 +357,13 @@ public class WcRecomp extends GhidraScript {
 		for (Fragment fr : fragments) {
 			emitFunction(fname(fr.entry), "discovered entry point @ " + fr.body.get(0).getAddress(), fr.body, sb, owner);
 		}
-		writeIfChanged(out.resolve("drv_" + name + ".c"), sb.toString());
+		writeIfChanged(out.resolve("drv_" + name + ".c"), biased(sb.toString(), bias));
 
 		StringBuilder hdr = new StringBuilder("/* Generated by WcRecomp.java. */\n#pragma once\n#include <stdint.h>\n\n");
 		for (String fn : new TreeSet<>(entries.values())) {
 			hdr.append("void ").append(fn).append("(uint32_t at);\n");
 		}
-		writeIfChanged(out.resolve(h), hdr.toString());
+		writeIfChanged(out.resolve(h), biased(hdr.toString(), bias));
 
 		// tables: code addresses, the instruction byte ranges and the image, for wc_drivers.c
 		StringBuilder t = new StringBuilder("/* Generated by WcRecomp.java: driver " + name + ". */\n");
@@ -352,7 +396,7 @@ public class WcRecomp extends GhidraScript {
 		t.append("\n};\n\nconst struct wc_driver wc_drv_").append(name).append(" = {\n\t\"").append(name).append("\", 0x")
 				.append(Long.toHexString(virt)).append(", ").append(owner.size()).append(", addr, func, ")
 				.append(merged.size()).append(", ranges, image,\n};\n");
-		writeIfChanged(out.resolve("drv_" + name + "_tables.c"), t.toString());
+		writeIfChanged(out.resolve("drv_" + name + "_tables.c"), biased(t.toString(), bias));
 		println(String.format("WcRecomp: driver %s: %d functions + %d fragments, %d instructions in %d byte ranges; " +
 			"%d unhandled p-code ops", name, functions.size(), fragments.size(), owner.size(), merged.size(), unhandled));
 		writeSummary(out.resolve("summary_" + name + ".json"), functions.size(), fragments.size(), owner.size(), Set.of());
@@ -538,6 +582,88 @@ public class WcRecomp extends GhidraScript {
 		return targets;
 	}
 
+	/**
+	 * The program's near calls through variables: "mov word [var],imm16" and "call/jmp word [var]" in
+	 * the same code segment (any segment prefix; Privateer picks its sprite decoder so, "call ss:[4938]"),
+	 * so the constants are offsets in that segment.
+	 */
+	private List<Long> storedCallTargets(List<Instruction> code) {
+		Map<String, Set<Integer>> stores = new HashMap<>();
+		Set<String> calls = new HashSet<>();
+		for (Instruction ins : code) {
+			try {
+				byte[] b = ins.getBytes();
+				int i = 0, pre = 0x3e;
+				if (b.length > 0 && ((b[0] & 0xff) == 0x26 || (b[0] & 0xff) == 0x2e || (b[0] & 0xff) == 0x36 || (b[0] & 0xff) == 0x3e)) {
+					pre = b[0] & 0xff;
+					i = 1;
+				}
+				if (b.length < i + 4) {
+					continue;
+				}
+				int disp = (b[i + 2] & 0xff) | (b[i + 3] & 0xff) << 8;
+				String key = realSegment(ins) + ":" + pre + ":" + disp;
+				if (b.length == i + 4 && (b[i] & 0xff) == 0xff && ((b[i + 1] & 0xff) == 0x16 || (b[i + 1] & 0xff) == 0x26)) {
+					calls.add(key);
+				}
+				if (b.length == i + 6 && (b[i] & 0xff) == 0xc7 && (b[i + 1] & 0xff) == 0x06) {
+					stores.computeIfAbsent(key, k -> new HashSet<>()).add((b[i + 4] & 0xff) | (b[i + 5] & 0xff) << 8);
+				}
+			}
+			catch (Exception e) {
+				// no bytes
+			}
+		}
+		List<Long> targets = new ArrayList<>();
+		// "add reg,imm16 ... call word ss:[reg]" (reg DI, SI or BX; Privateer's sprite code, by a mode
+		// variable): a table of offsets in the data segment; read it while they are in the code segment
+		List<Instruction> sorted = new ArrayList<>(code);
+		sorted.sort((x, y) -> x.getAddress().compareTo(y.getAddress()));
+		for (int k = 0; k < sorted.size() && dgroup >= 0; k++) {
+			try {
+				byte[] b = sorted.get(k).getBytes();
+				int i = b.length > 0 && ((b[0] & 0xff) == 0x36 || (b[0] & 0xff) == 0x3e) ? 1 : 0;
+				int rm = b.length == i + 2 && (b[i] & 0xff) == 0xff ? b[i + 1] & 0xff : -1;
+				int reg = rm == 0x15 ? 7 : rm == 0x14 ? 6 : rm == 0x17 ? 3 : -1;
+				if (reg < 0) {
+					continue;
+				}
+				for (int j = k - 1; j >= Math.max(0, k - 3); j--) {
+					byte[] a = sorted.get(j).getBytes();
+					if (a.length == 4 && (a[0] & 0xff) == 0x81 && (a[1] & 0xff) == (0xc0 | reg)) {
+						int table = (a[2] & 0xff) | (a[3] & 0xff) << 8;
+						long seg = realSegment(sorted.get(k));
+						Segment s = segmentOf(seg * 16);
+						for (int n = 0; n < 64; n++) {
+							int off = getShort(linearToAddress(dgroup * 16L + table + 2 * n)) & 0xffff;
+							if (s == null || seg * 16 + off >= s.end || off < 0x10) {
+								break;
+							}
+							targets.add(seg * 16 + off);
+						}
+						break;
+					}
+				}
+			}
+			catch (Exception e) {
+				// no bytes
+			}
+		}
+		for (var e : stores.entrySet()) {
+			if (!calls.contains(e.getKey())) {
+				continue;
+			}
+			long seg = Long.parseLong(e.getKey().substring(0, e.getKey().indexOf(':')));
+			for (int off : e.getValue()) {
+				Segment s = segmentOf(seg * 16 + off);
+				if (s != null && s.seg == seg) {
+					targets.add(seg * 16 + off);
+				}
+			}
+		}
+		return targets;
+	}
+
 	/** Constants stored with "mov word cs:[var],imm16" into variables that "call/jmp cs:[var]" uses. */
 	private static List<Long> callbackTargets(List<Instruction> code, long base) {
 		Set<Integer> vars = new HashSet<>();
@@ -633,6 +759,30 @@ public class WcRecomp extends GhidraScript {
 			}
 		}
 		return targets;
+	}
+
+	/**
+	 * A driver's C with its code addresses moved up by bias: the 5-digit hex addresses in its 64 KB
+	 * (0x..., F_..., L_..., P_...). Constants are emitted with a ULL suffix and stay as they are.
+	 */
+	private String biased(String c, long bias) {
+		if (bias == 0) {
+			return c;
+		}
+		long seg = driverSeg * 16L >> 16;
+		Matcher m = Pattern.compile("\\b(0x|F_|L_|P_)(" + Long.toHexString(seg) + "[0-9a-f]{4})\\b").matcher(c);
+		StringBuilder sb = new StringBuilder();
+		while (m.find()) {
+			m.appendReplacement(sb, m.group(1) + Long.toHexString(Long.parseLong(m.group(2), 16) + bias));
+		}
+		m.appendTail(sb);
+		return sb.toString();
+	}
+
+	private byte[] bytes(Address a, int n) throws Exception {
+		byte[] b = new byte[n];
+		currentProgram.getMemory().getBytes(a, b);
+		return b;
 	}
 
 	/** An instruction start inside a Ghidra function, i.e. code that is emitted anyway. */
@@ -837,6 +987,13 @@ public class WcRecomp extends GhidraScript {
 							segValue = "rd(0x" + Long.toHexString(override) + ", 2) /* segment override */";
 							segReg = override;
 						}
+						else if (override == null && in[1].isRegister() && in[1].getOffset() == DS && bpOperand(ins)) {
+							// Ghidra reads some forms through DS (CALLF [BP-4] in Borland's int86), but a
+							// BP-based operand's default segment is SS
+							bpFixes++;
+							segValue = "rd(0x" + Long.toHexString(SS) + ", 2) /* BP-based: SS */";
+							segReg = SS;
+						}
 						if (out.isUnique() && segReg != null) {
 							segRegOf.put(out.getOffset(), segReg);
 						}
@@ -899,6 +1056,11 @@ public class WcRecomp extends GhidraScript {
 					iretFixes++;
 					return "set_flags_word(rd(0x280, 2)); return;";
 				}
+				if (pushReturn(ins) && in.length > 0) {
+					// "push dx; push ax; retf" (Privateer's sound code): a jump to what was pushed
+					pushReturns++;
+					return "run((uint32_t)" + a + "); return;";
+				}
 				return "return;";
 			default:
 				unhandled++;
@@ -927,6 +1089,33 @@ public class WcRecomp extends GhidraScript {
 			// no bytes
 		}
 		return null;
+	}
+
+	/** A RETF right after two pushes (or one 32-bit push) or a RET right after one: a jump through the
+	 * stack, not a return. */
+	private boolean pushReturn(Instruction ins) {
+		String m = ins.getMnemonicString();
+		int words = m.equals("RETF") ? 2 : m.equals("RET") ? 1 : 0;
+		if (words == 0 || ins.getNumOperands() > 0) {
+			return false;
+		}
+		long expect = ins.getAddress().getOffset();
+		Instruction p = ins;
+		while (words > 0) {
+			p = getInstructionBefore(p.getAddress());
+			if (p == null || !p.getMnemonicString().equals("PUSH") || p.getAddress().getOffset() + p.getLength() != expect) {
+				return false;
+			}
+			expect = p.getAddress().getOffset();
+			words -= p.toString().matches("PUSH E[A-Z]{2}") ? 2 : 1; // a 32-bit register: two words
+		}
+		return words == 0;
+	}
+
+	/** An instruction with a BP-based memory operand ([BP...], [EBP...]). */
+	private static boolean bpOperand(Instruction ins) {
+		String s = ins.toString();
+		return s.contains("[BP") || s.contains("[EBP");
 	}
 
 	/** A memory operand's default segment (DS, or SS for BP-based); stack accesses use SS:SP. */

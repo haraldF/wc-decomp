@@ -5,6 +5,8 @@
  * (FUN_1943_0003), and takes the centre from there. So here an axis bit stays 1 for a number of
  * reads, not a time: the centre is CENTRE reads, full deflection RANGE more or fewer, whatever the
  * CPU speed. Joystick B is absent (its bits never fall), the buttons read 0 while pressed.
+ * Privateer measures the same way but keeps its calibration in JOYA.DAT (GOG's: 0 to 80h, centre
+ * 40h): wc_program.stick is the centre, a program's own (64 there; the range is 15/16 of it).
  * The stick is always there, centred and still unless a controller moves it: the game only acts on
  * a stick that is off centre or a button that changes, and it detects the stick once, at startup,
  * so a controller plugged in later works too. WC_JOYSTICK=0: no joystick.
@@ -60,8 +62,9 @@ static int is_present(void)
 void joystick_out(void)
 {
 	reads = 0;
-	left_x = CENTRE + atomic_load(&stick_x) * RANGE / 1000;
-	left_y = CENTRE + atomic_load(&stick_y) * RANGE / 1000;
+	int centre = wc_program.stick ? wc_program.stick : CENTRE, range = centre * RANGE / CENTRE;
+	left_x = centre + atomic_load(&stick_x) * range / 1000;
+	left_y = centre + atomic_load(&stick_y) * range / 1000;
 }
 
 uint8_t joystick_in(void)

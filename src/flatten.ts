@@ -48,7 +48,9 @@ export function flatten(file: Buffer, source: string): { exe: Buffer; manifest: 
     imageSize = align(imageSize + ovl.code.length, 16);
     return { ovl, seg };
   });
-  if (imageSize > 0xa0000) throw new Error("flattened image does not fit in conventional memory");
+  // Only the program's own image must fit in conventional memory at runtime; the overlays are code
+  // addresses (PRCD.EXE's reach 0E5000h at 1000:0000). Ghidra's real-mode addresses end at 10FFEFh.
+  if (imageSize > 0xe0000) throw new Error("flattened image does not fit below F000:0000");
 
   const image = Buffer.alloc(imageSize);
   mz.image.copy(image);
