@@ -77,7 +77,9 @@ const GAMES: Record<string, Game> = {
   // Wing Commander: Privateer (GOG's DOS release), PRCD.EXE: the game itself, which PRIV.EXE starts
   // after installing Origin's EMS driver (JEMM); here the runtime's EMS stands in for it
   priv: { exe: "PRCD.EXE", dir: "../game-privateer/game", sha256: "84d7b3b39ea7a987d5c60a6e4462e8395c6343a8bb0554b2d0b0d6b0ea9e4eab",
-    out: "priv", entries: "entries-priv.txt", rates: 0, roll: 0, cycles: 12000, loadSeg: 0x200, stick: 64,
+    // GOG's DOSBox runs it at cycles=max; it paces itself by its timer, and at 12000 the intro's 3D
+    // scenes stalled for 0.5 s at a time, up to 100000 still dropped to ~8 fps (the M4 does ~900000)
+    out: "priv", entries: "entries-priv.txt", rates: 0, roll: 0, cycles: 300000, loadSeg: 0x200, stick: 64,
     unhandled: 1 /* FEMMS: data decoded as code, in seg_unknown.c */ },
 };
 const gameName = values.game!;

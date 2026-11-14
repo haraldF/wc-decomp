@@ -277,7 +277,7 @@ x86 real-mode modelling bugs the scripts work around:
   (below), the intro decides: 10000 was a little too fast, one Cmd+Down step from there (8334,
   with 15 fps in flight) felt right, so those are the defaults.
 - The default is per program (`cycles` in cli.ts' GAMES, wc_program.cycles): WC2 at 12000, where
-  8334 felt sluggish, 14400 "a lot smoother", then 12000 better still. Headless, the instruction
+  8334 felt sluggish, 14400 "a lot smoother", then 12000 better still. Privateer at 300000 (see there). Headless, the instruction
   clock runs at that speed too: tick timings depend on it (fewer instructions per tick at 12000).
 - In flight, frames are paced instead (pc_frame, `WC_FPS`, default 15; 25 and 21 felt too fast, "hectic", 18 was fine, 15 better in combat): the frame copy is entry 4
   (offset 7454) of the second graphics driver, d7000, recognised in `run()` by that address. Between
@@ -610,6 +610,13 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   when the host's mouse changed and interrupts are on (irq_poll), with the buttons as they are (the
   "clicked" latch that AX=3 clears would hold a release back forever).
 - DOS AH=2Bh/2Dh (set date/time; the game sets the time on exit after its timer ran fast): ignored.
+- Speed: GOG's DOSBox runs it at `cycles=max`, and the game paces itself by its 60 Hz timer (frames
+  wait on the counter at DS:5493), so more instructions only take stalls away. At 12000 (WC2's) the
+  intro's 3D scenes (the ship turning on the pirates) stalled ~0.5 s at a time; at 100000 they still
+  fell to ~8 fps; from 200000 on every frame keeps the game's pace (~40 ticks in the intro, 21 = 28.6
+  fps in flight). The default is 300000 (an M4 runs ~900000 instructions/ms). Frame intervals came
+  from WC_TRACE=1 (IRQ0 lines) and WC_WATCH=107d00 (a pixel of the screen in the HMA: one write a
+  frame). Headless runs take longer now (25 times the instructions per tick).
 - Runs differ: the game seeds its randomness from the clock (DOS time), so the instruction clock
   doesn't make it deterministic. The timer runs at 600 Hz (AIL), so WC_KEYS ticks are 1/600 s.
 - Scripted (instruction clock, WC_MOUSE=1, the scratch folder): the intro (cockpit scene, ...) and the
