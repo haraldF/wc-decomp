@@ -23,6 +23,10 @@ static uint64_t start_ns, frames_done;
 
 static uint8_t timer_value[2], timer_control, status;
 static uint64_t timer_start_ns[2];
+/* A read of the status port takes ~1 us on the ISA bus, and drivers wait by reading it: Miles's AdLib
+ * driver (Privateer) starts timer 1 (80 us) and expects it run out after 200 reads. The emulated reads
+ * take a few instructions, so each one moves the timers' clock on by 1 us. */
+static uint64_t io_ns;
 
 static void timers(uint64_t now)
 {
@@ -38,7 +42,7 @@ static void timers(uint64_t now)
 /* Make the samples from where we left off up to now (at most 0.1 s at once). */
 void opl_poll(uint64_t now)
 {
-	timers(now);
+	timers(now + io_ns);
 	if (!playing) return;
 	uint64_t due = (now - start_ns) * OPL_RATE / 1000000000u;
 	if (pc_warping()) frames_done = due; /* the quick start (pc.c): no sound to make yet, none to queue */
@@ -55,7 +59,8 @@ void opl_poll(uint64_t now)
 uint64_t opl_in(uint64_t port)
 {
 	if (port == 0x388) {
-		timers(pc_now_ns());
+		io_ns += 1000;
+		timers(pc_now_ns() + io_ns);
 		return status;
 	}
 	return 0xff;
@@ -77,7 +82,7 @@ void opl_out(uint64_t port, uint64_t value)
 			break;
 		}
 		for (int t = 0; t < 2; t++) {
-			if ((v & (1 << t)) && !(timer_control & (1 << t))) timer_start_ns[t] = pc_now_ns();
+			if ((v & (1 << t)) && !(timer_control & (1 << t))) timer_start_ns[t] = pc_now_ns() + io_ns;
 		}
 		timer_control = v;
 		break;

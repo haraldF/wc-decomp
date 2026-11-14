@@ -71,7 +71,8 @@ DOSBox package: unpack it with `pkgutil --expand-full`, take the folder
 `7z x`) into the same folder, so `PRIV.TRE` sits next to `PRCD.EXE` (by default
 `../game-privateer/game`). `PRIV.EXE` only installs Origin's EMS driver JEMM and starts `PRCD.EXE`;
 here the runtime plays JEMM's part. Its music and sound use Miles Design drivers from `PRIV.TRE`
-(GOG's `SOUND.CFG`: Roland MT-32 at 330h, which `WC_MT32` makes heard, and the Sound Blaster).
+(GOG's `SOUND.CFG`: General MIDI at 330h and the Sound Blaster). With no General MIDI synthesizer
+here, the game is told its music is the AdLib (`WC_MT32` sends the General MIDI to the MT-32 instead).
 
 ```bash
 npm run decompile -- --game priv && npm run recomp -- --game priv

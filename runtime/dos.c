@@ -170,13 +170,60 @@ static int host_fd(uint64_t h)
 	return h < MAX_HANDLES ? handles[h] : -1;
 }
 
+/* Privateer's SOUND.CFG is "music effects", then a line "port irq dma -1" for each card. Music 1 is
+ * the Roland MT-32, 2 the AdLib, 3 General MIDI (GOG's, which its DOSBox sends to the host's
+ * synthesizer), all but the AdLib at 330h (816). There is no General MIDI synth here, and GOG's data
+ * has no MT-32 music (COMBAT.ROL...; only .ADL and .GEN): without WC_MT32 (which takes the MIDI as it
+ * is) the game reads the AdLib at 388h (904; it refuses the AdLib at 330h). The file stays as it is.
+ * Returns an unlinked copy to read, or -1 for the file itself. */
+static int sound_cfg(const char *dos, const char *path, int flags)
+{
+	const char *base = strrchr(dos, '\\') ? strrchr(dos, '\\') + 1 : strchr(dos, ':') ? strchr(dos, ':') + 1 : dos;
+	if (strcmp(wc_program.exe, "PRCD.EXE") || strcasecmp(base, "SOUND.CFG") || (flags & O_ACCMODE) != O_RDONLY) {
+		return -1;
+	}
+	FILE *f = fopen(path, "rb");
+	if (!f) return -1;
+	char text[2048];
+	size_t n = fread(text, 1, sizeof text - 1, f);
+	fclose(f);
+	text[n] = 0;
+	int music, effects, used;
+	if (sscanf(text, "%d %d%n", &music, &effects, &used) != 2 || (music != 1 && music != 3)) {
+		return -1;
+	}
+	if (getenv("WC_MT32")) return -1;
+	char *line2 = strchr(text, '\n'), *rest = line2 ? strchr(line2 + 1, '\n') : NULL;
+	int port, more;
+	if (!rest || sscanf(line2 + 1, "%d%n", &port, &more) != 1) return -1;
+	static int told;
+	if (!told++) {
+		fprintf(stderr, "wc: SOUND.CFG's music %d read as 2, the AdLib: no %s here (WC_MT32 for the MT-32)\n",
+			music, music == 3 ? "General MIDI synthesizer" : "MT-32");
+	}
+	char out[2200];
+	int len = snprintf(out, sizeof out, "2 %d%.*s\n904%s", effects, (int)(line2 - text - used), text + used,
+		line2 + 1 + more);
+	char tmp[] = "/tmp/wc-sound-XXXXXX";
+	int fd = mkstemp(tmp);
+	if (fd < 0) return -1;
+	unlink(tmp);
+	if (len >= (int)sizeof out || write(fd, out, len) != len || lseek(fd, 0, SEEK_SET) != 0) {
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
 static void open_file(int flags, const char *what)
 {
 	char dos[128], path[1024];
 	get_string(DS, DX, dos, sizeof dos);
 	host_path(dos, path, sizeof path);
 	struct stat st;
-	int fd = !dos[0] ? (errno = ENOENT, -1)
+	int cfg = dos[0] ? sound_cfg(dos, path, flags) : -1;
+	int fd = cfg >= 0 ? cfg
+		: !dos[0] ? (errno = ENOENT, -1)
 		: stat(path, &st) == 0 && S_ISDIR(st.st_mode) ? (errno = EACCES, -1) /* DOS can't open folders */
 		: open(path, flags, 0644);
 	if (wc_trace) {

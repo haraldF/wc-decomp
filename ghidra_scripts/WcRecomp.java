@@ -59,7 +59,7 @@ public class WcRecomp extends GhidraScript {
 
 	private final List<Segment> segments = new ArrayList<>();
 	private final Map<Long, String> entries = new HashMap<>(); // linear entry -> C function name
-	private int csFixes, nearWrapFixes, fragmentSwitches, overrideFixes, relocConstants, farJumpFixes, iretFixes, codeReads, unhandled, bpFixes, pushReturns;
+	private int csFixes, nearWrapFixes, fragmentSwitches, overrideFixes, relocConstants, farJumpFixes, iretFixes, codeReads, unhandled, bpFixes, pushReturns, xlatFixes;
 	/** whether the instruction being translated is in an overlay */
 	private boolean inOverlay;
 	/** unique offset -> segment register the segment() producing it used (after override fixes) */
@@ -249,9 +249,9 @@ public class WcRecomp extends GhidraScript {
 		writeImage(out);
 		writeRelocs(out);
 		println(String.format("WcRecomp: %d functions + %d discovered fragments, %d instructions in %d files; " +
-			"%d CS fixes, %d near wrap fixes, %d segment override fixes, %d BP operands through SS, %d far jump fixes, %d IRET fixes, %d jumps by push and return, %d overlay code reads, " +
+			"%d CS fixes, %d near wrap fixes, %d segment override fixes, %d BP operands through SS, %d far jump fixes, %d IRET fixes, %d jumps by push and return, %d XLAT fixes, %d overlay code reads, " +
 			"%d relocated constants, %d unhandled p-code ops", functions.size(), fragments.size(), owner.size(),
-			files.size(), csFixes, nearWrapFixes, overrideFixes, bpFixes, farJumpFixes, iretFixes, pushReturns, codeReads, relocConstants, unhandled));
+			files.size(), csFixes, nearWrapFixes, overrideFixes, bpFixes, farJumpFixes, iretFixes, pushReturns, xlatFixes, codeReads, relocConstants, unhandled));
 		TreeSet<Long> missing = new TreeSet<>(hooks);
 		missing.removeAll(hooked);
 		writeSummary(out.resolve("summary.json"), functions.size(), fragments.size(), owner.size(), missing);
@@ -621,11 +621,50 @@ public class WcRecomp extends GhidraScript {
 				// no bytes
 			}
 		}
+		// "mov reg,imm16 ... mov word [var],reg" with the constant up to 5 instructions before, all of them
+		// (Privateer: "mov ax,06e5; cmp bl,bh; jb; mov ax,0a47; mov ss:[493a],ax", later "jmp ss:[493a]")
+		List<Instruction> sorted = new ArrayList<>(code);
+		sorted.sort((x, y) -> x.getAddress().compareTo(y.getAddress()));
+		for (int k = 0; k < sorted.size(); k++) {
+			try {
+				Instruction ins = sorted.get(k);
+				byte[] b = ins.getBytes();
+				int i = 0, pre = 0x3e;
+				if (b.length > 0 && ((b[0] & 0xff) == 0x26 || (b[0] & 0xff) == 0x2e || (b[0] & 0xff) == 0x36 || (b[0] & 0xff) == 0x3e)) {
+					pre = b[0] & 0xff;
+					i = 1;
+				}
+				int reg, disp;
+				if (b.length == i + 3 && (b[i] & 0xff) == 0xa3) {
+					reg = 0;
+					disp = (b[i + 1] & 0xff) | (b[i + 2] & 0xff) << 8;
+				}
+				else if (b.length == i + 4 && (b[i] & 0xff) == 0x89 && (b[i + 1] & 0xc7) == 0x06) {
+					reg = (b[i + 1] >> 3) & 7;
+					disp = (b[i + 2] & 0xff) | (b[i + 3] & 0xff) << 8;
+				}
+				else {
+					continue;
+				}
+				String key = realSegment(ins) + ":" + pre + ":" + disp;
+				for (int j = k - 1; j >= Math.max(0, k - 5); j--) {
+					Instruction pj = sorted.get(j);
+					if (pj.getAddress().getOffset() < ins.getAddress().getOffset() - 24) {
+						break;
+					}
+					byte[] a = pj.getBytes();
+					if (a.length == 3 && (a[0] & 0xff) == (0xb8 | reg)) {
+						stores.computeIfAbsent(key, x -> new HashSet<>()).add((a[1] & 0xff) | (a[2] & 0xff) << 8);
+					}
+				}
+			}
+			catch (Exception e) {
+				// no bytes
+			}
+		}
 		List<Long> targets = new ArrayList<>();
 		// "add reg,imm16 ... call word ss:[reg]" (reg DI, SI or BX; Privateer's sprite code, by a mode
 		// variable): a table of offsets in the data segment; read it while they are in the code segment
-		List<Instruction> sorted = new ArrayList<>(code);
-		sorted.sort((x, y) -> x.getAddress().compareTo(y.getAddress()));
 		for (int k = 0; k < sorted.size() && dgroup >= 0; k++) {
 			try {
 				byte[] b = sorted.get(k).getBytes();
@@ -951,6 +990,15 @@ public class WcRecomp extends GhidraScript {
 		Set<Long> swiOutputs = new HashSet<>();
 		Map<Long, Varnode> segOfUnique = new HashMap<>(); // unique offset -> segment input of segment()
 		boolean ends = false;
+		if (ins.getMnemonicString().equals("XLAT")) {
+			// Ghidra's XLAT reads linear BX+AL, without a segment (DS, or the prefix's: Miles's AdLib
+			// driver maps velocities through "cs: xlat", which read 0 from the interrupt vectors)
+			xlatFixes++;
+			long seg = override != null ? override : DS;
+			String addr = "lin(rd(0x" + Long.toHexString(seg) + ", 2), (rd(0xc, 2) + rd(0x0, 1)) & 0xffff)";
+			c.append("\twr(0x0, 1, ").append(inOverlay && seg == CS ? "mrd_code(" : "mrd(").append(addr).append(", 1));\n");
+			ops = new PcodeOp[0];
+		}
 		for (int i = 0; i < ops.length; i++) {
 			PcodeOp op = ops[i];
 			if (relative) {

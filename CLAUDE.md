@@ -115,6 +115,9 @@ x86 real-mode modelling bugs the scripts work around:
   loop; …; jmp cs:[bx+2N]`: N values, then N targets), `sparseSwitchTargets()` (4d7ef; 6 found).
 - Segment-override prefixes are sometimes dropped; the generator re-applies them.
 - `JMPF m16:16` (jmp far through memory) is modelled as a near jump.
+- `XLAT` reads linear BX+AL, without any segment (DS or the prefix's); the generator writes it itself.
+  Miles's AdLib driver maps note velocities through `cs: xlat`: every voice got 0 from the interrupt
+  vectors, every carrier total level 63, and the music played inaudibly (peaks ~100).
 - `IRET` pops into the `flags` word (register 0x280) only, without unpacking CF/IF/...; the
   generator calls `set_flags_word()`.
 - "Shared Return Calls" and fragment splitting break functions; `WcSwitches` turns it off and
@@ -588,7 +591,10 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 - Near calls through variables (the sprite code picks its decoder: `mov word ss:[4938],0470h` ...
   `call ss:[4938]`, and `mov di,[46e0]; add di,4222h; call ss:[di]` through a table in DGROUP):
   `storedCallTargets()` seeds them in the program (Ghidra's functions and the fragments, repeated
-  until nothing new turns up; 49 in PRCD.EXE, 1 in WC.EXE). They had come up one random run at a time.
+  until nothing new turns up; 65 in PRCD.EXE, 1 in WC.EXE). They had come up one random run at a time.
+  Also stored from a register set by a branch, `mov ax,06e5h; cmp bl,bh; jb; mov ax,0a47h; mov
+  ss:[493a],ax`, then `jmp ss:[493a]`: every `mov reg,imm16` up to 5 instructions before (16 more;
+  play stopped at 68427 and 69da3, two of them, after the sweep).
 - Borland C++ 3's switch on a long in 386 code: `mov cx,N; mov bx,table; mov eax,cs:[bx]; cmp
   eax,..; jz; add bx,4; loop; jmp default; found: add cx,cx; add bx,cx; jmp cs:[bx+2N]` (N dwords,
   then N targets): `sparseSwitchTargets()` reads it (accepting a mission stopped at a73ac, ovl31).
@@ -613,6 +619,14 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 - The Roland driver waits for the MPU-401's acknowledgement with interrupts off: the MPU at 330h is
   now always there (mt32.c), as in GOG's DOSBox; without WC_MT32 its MIDI goes nowhere. main.c
   doesn't add WC1's "r" for WC_MT32 here: SOUND.CFG picks the card, and "r" is Righteous Fire.
+- GOG's music 3 is General MIDI, which its DOSBox sends to the host's synthesizer (`mididevice`);
+  there is none here, so the game played no music at all. Without WC_MT32, dos.c (`sound_cfg`) gives
+  the game a copy of SOUND.CFG whose music is 2 (AdLib); the file stays as it is. Not 1: GOG's
+  PRIV.TRE has the music as .ADL and .GEN only, and the MT-32's (COMBAT.ROL) is missing ("Program
+  halted by code"); with WC_MT32 the MT-32 gets the General MIDI as before. The AdLib needs its port too (904 = 388h on the music's line): at 330h the game says "Your Privateer
+  sound configuration is incorrect" and exits with 1. ADLIB.DRV is d3f000. Its detection starts OPL
+  timer 1 (80 us) and reads the status port 200 times, ~1 us each on the ISA bus but a few
+  instructions here: each read of 388h moves the OPL timers' clock on by 1 us (opl.c, `io_ns`).
 - Joystick: GOG's JOYA.DAT calibrates the stick to 0..80h, centre 40h, counted in reads of port 201h
   like WC1 (joystick.c); the emulated stick's centre of 256 reads was full right and down, and the
   game moved the pointer there all the time (mouse clicks never landed). `stick: 64` in cli.ts'
