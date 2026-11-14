@@ -53,6 +53,8 @@ interface Game {
   loadSeg: number;
   /** the joystick's centre in reads of port 201h (default 256; Privateer calibrates by JOYA.DAT) */
   stick?: number;
+  /** decode the code no analysis reaches too (WcRecomp's sweepTargets) */
+  sweep?: boolean;
   /** p-code ops the generator can't translate in it, known to be harmless (data decoded as code) */
   unhandled?: number;
 }
@@ -79,7 +81,7 @@ const GAMES: Record<string, Game> = {
   priv: { exe: "PRCD.EXE", dir: "../game-privateer/game", sha256: "84d7b3b39ea7a987d5c60a6e4462e8395c6343a8bb0554b2d0b0d6b0ea9e4eab",
     // GOG's DOSBox runs it at cycles=max; it paces itself by its timer, and at 12000 the intro's 3D
     // scenes stalled for 0.5 s at a time, up to 100000 still dropped to ~8 fps (the M4 does ~900000)
-    out: "priv", entries: "entries-priv.txt", rates: 0, roll: 0, cycles: 300000, loadSeg: 0x200, stick: 64,
+    out: "priv", entries: "entries-priv.txt", rates: 0, roll: 0, cycles: 300000, loadSeg: 0x200, stick: 64, sweep: true,
     unhandled: 1 /* FEMMS: data decoded as code, in seg_unknown.c */ },
 };
 const gameName = values.game!;
@@ -172,6 +174,7 @@ const doRecomp = async (): Promise<void> => {
     "-scriptPath", scriptPath,
     "-postScript", "WcRecomp.java", manifestPath, recompDir, entriesFile,
     [...(game.rates ? [game.rates] : []), ...(game.hooks ?? [])].map((h) => h.toString(16)).join(","),
+    ...(game.sweep ? ["sweep"] : []),
   ], path.join(recompDir, "summary.json"), game.exe);
   const drivers = readDrivers();
   for (const d of drivers) {

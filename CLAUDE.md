@@ -589,6 +589,18 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   `call ss:[4938]`, and `mov di,[46e0]; add di,4222h; call ss:[di]` through a table in DGROUP):
   `storedCallTargets()` seeds them in the program (Ghidra's functions and the fragments, repeated
   until nothing new turns up; 49 in PRCD.EXE, 1 in WC.EXE). They had come up one random run at a time.
+- Borland C++ 3's switch on a long in 386 code: `mov cx,N; mov bx,table; mov eax,cs:[bx]; cmp
+  eax,..; jz; add bx,4; loop; jmp default; found: add cx,cx; add bx,cx; jmp cs:[bx+2N]` (N dwords,
+  then N targets): `sparseSwitchTargets()` reads it (accepting a mission stopped at a73ac, ovl31).
+- Sweep (`sweep: true` in GAMES, WcRecomp's `sweepTargets()`): every stretch of the code segments no
+  decoded instruction covers is decoded from its start, and becomes an entry point when it is at least
+  3 ordinary instructions up to a return or jump inside the stretch (no x87, system, BCD or other
+  instructions data turns into). Before it, 97.6% of the code bytes were decoded (19.7 KB left in 2109
+  stretches, mostly under 8 bytes: padding and data) and play stopped for missing code one restart at
+  a time; it adds 879 entry points (library routines after a `ret`, branches nothing analysed jumps
+  to), 98.7% (11 KB left: AIL's variables, the 3D code's tables). Function prologues after a return
+  found only 9: what was missing were mostly targets inside functions. Only Privateer has it, so
+  the other programs' recompiled code stays as checked.
 - Code reached through pointers: `entries-priv.txt` starts with the far code pointers in the data
   (relocated segment words naming a code segment, the offset before them: vtables, the startup
   tables, callbacks), less those into stub headers or data (they decoded into x87 and system

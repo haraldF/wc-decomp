@@ -14,7 +14,7 @@
 // Code reached only through pointers in data has no Ghidra function; list such entry points
 // (linear, hex, one per line) in the optional entries file and they get recompiled too, along
 // with any functions they call. The runtime reports such addresses ("npm run discover").
-// Args: <manifest.json> <output dir> [entries file]
+// Args: <manifest.json> <output dir> [entries file] [hooks, hex, commas] [sweep]
 //   or:  driver <output dir> <name> <entries file>  for an image of code the program loads at
 //        runtime (a driver), imported at a 64 KB-aligned virtual segment: it is position independent
 //        (CS comes from the register), and writes drv_<name>.c, .h and _tables.c.
@@ -92,7 +92,8 @@ public class WcRecomp extends GhidraScript {
 			return;
 		}
 		JsonObject manifest = JsonParser.parseString(Files.readString(Path.of(args[0]))).getAsJsonObject();
-		if (args.length > 3) {
+		boolean sweep = java.util.Arrays.asList(args).subList(Math.min(3, args.length), args.length).contains("sweep");
+		if (args.length > 3 && !args[3].equals("sweep")) {
 			for (String h : args[3].split(",")) {
 				if (!h.isBlank()) hooks.add(Long.parseLong(h.trim(), 16));
 			}
@@ -204,6 +205,12 @@ public class WcRecomp extends GhidraScript {
 			fragments = fragments(seeds);
 		}
 		println("WcRecomp: " + storedSeen.size() + " near call targets stored in variables");
+		if (sweep) {
+			List<Long> swept = sweepTargets(fragments);
+			seeds.addAll(swept);
+			fragments = fragments(seeds);
+			println("WcRecomp: " + swept.size() + " entry points from a sweep over the code not decoded");
+		}
 		for (Fragment fr : fragments) {
 			entries.put(fr.entry, fname(fr.entry));
 		}
@@ -664,6 +671,77 @@ public class WcRecomp extends GhidraScript {
 		return targets;
 	}
 
+	/** Mnemonics that ordinary code doesn't have: in a sweep, data decoded as code (see sweepTargets). */
+	private static final Set<String> NOT_CODE = Set.of("HLT", "INT3", "INTO", "ARPL", "BOUND", "LGDT", "SGDT", "LIDT",
+		"SIDT", "LLDT", "SLDT", "LTR", "STR", "LMSW", "SMSW", "CLTS", "INVD", "WBINVD", "RDMSR", "WRMSR", "CPUID", "RDTSC",
+		"FEMMS", "EMMS", "UD2", "AAA", "AAS", "DAA", "DAS", "AAM", "AAD", "SALC", "XLAT", "WAIT", "INSB", "INSW", "OUTSB",
+		"OUTSW", "CMC", "SAHF", "LAHF", "PUSHAD", "POPAD", "IRETD", "VERR", "VERW", "LAR", "LSL");
+
+	/**
+	 * Code no analysis reaches (a game option, `sweep` in cli.ts' GAMES: Privateer, where such code came up
+	 * one restart at a time in play): every stretch of the code segments that no decoded instruction
+	 * covers, decoded from its start, is an entry point when it is at least 3 ordinary instructions up to
+	 * a return or jump inside the stretch. Data decodes as junk sooner or later (the x87, system and BCD
+	 * instructions above, an invalid opcode), so little of it passes; what does is never run.
+	 */
+	private List<Long> sweepTargets(List<Fragment> fragments) throws Exception {
+		java.util.BitSet covered = new java.util.BitSet();
+		for (Instruction ins : currentProgram.getListing().getInstructions(true)) {
+			long a = ins.getAddress().getOffset() - IMAGE_BASE;
+			if (a >= 0) covered.set((int) a, (int) a + ins.getLength());
+		}
+		for (Fragment fr : fragments) {
+			for (Instruction ins : fr.body) {
+				long a = ins.getAddress().getOffset() - IMAGE_BASE;
+				if (a >= 0) covered.set((int) a, (int) a + ins.getLength());
+			}
+		}
+		PseudoDisassembler pdis = new PseudoDisassembler(currentProgram);
+		List<Long> targets = new ArrayList<>();
+		for (Segment s : segments) {
+			if (s.name.startsWith("stub")) {
+				continue;
+			}
+			int p = (int) (s.start - IMAGE_BASE), end = (int) (s.end - IMAGE_BASE);
+			while (p < end) {
+				p = covered.nextClearBit(p);
+				if (p >= end) {
+					break;
+				}
+				int q = Math.min(covered.nextSetBit(p) < 0 ? end : covered.nextSetBit(p), end);
+				int x = p, count = 0;
+				boolean ok = false;
+				while (q - p >= 4 && x < q) {
+					Instruction pi;
+					try {
+						pi = pdis.disassemble(linearToAddress(IMAGE_BASE + x));
+					}
+					catch (Exception e) {
+						pi = null;
+					}
+					if (pi == null || x + pi.getLength() > q) {
+						break;
+					}
+					String m = pi.getMnemonicString(), text = pi.toString();
+					if (NOT_CODE.contains(m) || m.startsWith("F") || text.matches(".*\\b[CD]R[0-7]\\b.*")) {
+						break;
+					}
+					count++;
+					x += pi.getLength();
+					if (m.equals("RET") || m.equals("RETF") || m.equals("IRET") || m.equals("JMP") || m.equals("JMPF")) {
+						ok = count >= 3;
+						break;
+					}
+				}
+				if (ok) {
+					targets.add(IMAGE_BASE + p);
+				}
+				p = q;
+			}
+		}
+		return targets;
+	}
+
 	/** Constants stored with "mov word cs:[var],imm16" into variables that "call/jmp cs:[var]" uses. */
 	private static List<Long> callbackTargets(List<Instruction> code, long base) {
 		Set<Integer> vars = new HashSet<>();
@@ -742,18 +820,23 @@ public class WcRecomp extends GhidraScript {
 		long at = ins.getAddress().getOffset();
 		byte[] p = new byte[40];
 		currentProgram.getMemory().getBytes(linearToAddress(at - p.length), p);
-		for (int i = p.length - 9; i >= 0; i--) {
-			int op = p[i + 7] & 0xff; // mov ax,cs:[bx] / cmp cs:[bx],ax / cmp ax,cs:[bx]
-			if ((p[i] & 0xff) == 0xb9 && (p[i + 3] & 0xff) == 0xbb && (p[i + 6] & 0xff) == 0x2e &&
-					(op == 0x8b || op == 0x39 || op == 0x3b) && (p[i + 8] & 0xff) == 0x07) {
+		for (int i = p.length - 10; i >= 0; i--) {
+			// Borland C++ 3's switch on a long with 386 code (Privateer): "66 2e 8b 07" (mov eax,cs:[bx]),
+			// N dword values, bx += 4; found: "add cx,cx; add bx,cx; jmp cs:[bx+2N]", the targets after the values
+			boolean dword = (p[i + 6] & 0xff) == 0x66;
+			int j = dword ? i + 1 : i;
+			int op = p[j + 7] & 0xff; // mov ax,cs:[bx] / cmp cs:[bx],ax / cmp ax,cs:[bx]
+			if ((p[i] & 0xff) == 0xb9 && (p[i + 3] & 0xff) == 0xbb && (p[j + 6] & 0xff) == 0x2e &&
+					(op == 0x8b || op == 0x39 || op == 0x3b) && (p[j + 8] & 0xff) == 0x07) {
 				int n = (p[i + 1] & 0xff) | (p[i + 2] & 0xff) << 8;
 				int table = (p[i + 4] & 0xff) | (p[i + 5] & 0xff) << 8;
-				if ((disp != 2 * n && disp != 4 * n) || n > 256) {
+				if ((dword ? disp != 2 * n : disp != 2 * n && disp != 4 * n) || n > 256) {
 					return targets;
 				}
+				int first = dword ? 4 * n : disp;
 				long cs = driverSeg >= 0 ? driverSeg * 16L : realSegment(ins) * 16L;
 				for (int k = 0; k < n; k++) {
-					targets.add(cs + (getShort(linearToAddress(cs + table + disp + 2 * k)) & 0xffff));
+					targets.add(cs + (getShort(linearToAddress(cs + table + first + 2 * k)) & 0xffff));
 				}
 				return targets;
 			}
