@@ -52,6 +52,12 @@ static int playing, paused, auto_init;
 static uint32_t rate, bytes, block_len = 0x800; /* block_len: for auto-initialize */
 static uint64_t start_ns, paused_at_ns;
 static int16_t direct;                   /* the last sample of 10h */
+/* After a DMA block the DAC holds its last sample; the output is AC-coupled, so it fades (over
+ * TAIL_NS here). Dropping to 0 clicked at every block in Privateer, whose interrupt handler starts the
+ * next one; holding it for good left the driver's test block's level as an offset. */
+static int16_t tail;
+static uint64_t tail_ns;
+enum { TAIL_NS = 20000000 };
 
 static void reply(uint8_t v)
 {
@@ -259,6 +265,11 @@ void sb_poll(uint64_t now)
 {
 	if (!playing || paused || now < block_end_ns()) return;
 	uint64_t end = block_end_ns();
+	if (bytes && !(dma_mask & (1 << SB_DMA))) {
+		uint16_t last = (uint16_t)(dma[SB_DMA].addr + bytes - 1);
+		tail = (int16_t)((ems_phys_byte((uint32_t)dma[SB_DMA].page << 16 | last) - 128) << 7);
+		tail_ns = end;
+	}
 	dma_advance(bytes);
 	wc_irq_pending |= 1 << SB_IRQ;
 	if (auto_init) start_block(end, block_len);
@@ -268,15 +279,20 @@ void sb_poll(uint64_t now)
 /* The sample at time t (16-bit), linearly between the DMA bytes. */
 static int sample_at(uint64_t t)
 {
-	if (!playing || paused || t < start_ns || !speaker) return speaker ? direct : 0;
+	if (!speaker) return 0;
+	if (!playing || paused || t < start_ns) {
+		int v = direct;
+		if (tail && t >= tail_ns && t - tail_ns < TAIL_NS) v += (int)(tail * (int64_t)(TAIL_NS - (t - tail_ns)) / TAIL_NS);
+		return v;
+	}
 	uint64_t pos = (t - start_ns) * rate * 256u / 1000000000u; /* in 1/256 bytes */
 	uint32_t i = (uint32_t)(pos >> 8);
-	if (i >= bytes) return 0;
+	if (i >= bytes) i = bytes ? bytes - 1 : 0; /* past the end until sb_poll sees it: the last sample */
 	if (dma_mask & (1 << SB_DMA)) return 0;
 	uint32_t page = (uint32_t)dma[SB_DMA].page << 16;
 	uint16_t a = dma[SB_DMA].addr;
-	int s0 = M[page | (uint16_t)(a + i)] - 128;
-	int s1 = i + 1 < bytes ? M[page | (uint16_t)(a + i + 1)] - 128 : s0;
+	int s0 = ems_phys_byte(page | (uint16_t)(a + i)) - 128;
+	int s1 = i + 1 < bytes ? ems_phys_byte(page | (uint16_t)(a + i + 1)) - 128 : s0;
 	int f = (int)(pos & 0xff);
 	return ((s0 * (256 - f) + s1 * f) >> 8) << 7; /* full scale +-16384: the AdLib is far quieter */
 }
@@ -284,7 +300,7 @@ static int sample_at(uint64_t t)
 /* Adds the card's output to n stereo frames at rate, the first one at time t0. */
 void sb_mix(int16_t *frames, unsigned n, unsigned out_rate, uint64_t t0)
 {
-	if (!present || (!playing && !direct)) return;
+	if (!present || (!playing && !direct && !tail)) return;
 	for (unsigned i = 0; i < n; i++) {
 		int s = sample_at(t0 + (uint64_t)i * 1000000000u / out_rate);
 		for (int c = 0; c < 2; c++) {

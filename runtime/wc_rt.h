@@ -108,6 +108,9 @@ static inline uint64_t mrd_code(uint64_t addr, int size)
 
 /* VGA memory (A000:0000) as the screen shows it (ems.c: Privateer's EMS driver can map pages over it) */
 uint8_t *ems_vram(void);
+/* Physical memory (the DMA): the first MB, then EMS pages as Privateer's EMS driver reports them */
+uint32_t ems_phys(uint32_t linear);
+uint8_t ems_phys_byte(uint32_t phys);
 /* Privateer's EMS driver's INT 15h AX=1209h commands; 1 if it was one */
 int jemm_int15(uint32_t at);
 

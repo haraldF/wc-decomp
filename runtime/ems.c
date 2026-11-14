@@ -272,6 +272,31 @@ void ems_irq(int enter)
 	}
 }
 
+/* Physical addresses (the DMA's, VCPI's): the first MB as it is in plain real mode, and the EMS store
+ * from EMS_PHYS on. Privateer's Sound Blaster driver plays straight out of the EMS frame in JEMM's mode
+ * (F0000h-FBFFFh): it asks for the pages' physical addresses (DE06h) and programs the DMA with them,
+ * so the samples come from the pages whatever mode the CPU is in when they play. */
+enum { EMS_PHYS = 0x200000 };
+
+uint32_t ems_phys(uint32_t linear)
+{
+	if (!store || linear < JEMM_FRAME || linear >= JEMM_FRAME + UPPER) return linear;
+	uint16_t s = frames[1][(linear - JEMM_FRAME) / PAGE]; /* JEMM's page tables */
+	if (s == NONE) {
+		int p = ((int)linear - FRAME) / PAGE;
+		s = linear >= FRAME && p < PHYS ? frames[0][p] : NONE;
+	}
+	return s == NONE ? linear : EMS_PHYS + (uint32_t)s * PAGE + (linear & (PAGE - 1));
+}
+
+/* A byte at a physical address (the DMA). In copy mode (the browser) a mapped page's store copy can be
+ * older than the frame's, as it always was there. */
+uint8_t ems_phys_byte(uint32_t phys)
+{
+	if (store && phys >= EMS_PHYS && phys < EMS_PHYS + (uint32_t)PAGES * PAGE) return store[phys - EMS_PHYS];
+	return M[phys & 0xfffff];
+}
+
 /* Map logical page log of handle h into physical page p (log FFFFh: unmap); an EMS result. */
 static int map_page(uint16_t h, int p, uint16_t log)
 {
@@ -432,9 +457,9 @@ void ems_int(uint32_t at)
 		result(err);
 		break;
 	}
-	case 0xde: /* VCPI: the physical address of the 4 KB page CX (DE06h: the Sound Blaster driver's DMA
-		 * buffer; memory isn't paged here), the debug registers (DE09h: Privateer's debugging) */
-		if (al == 0x06) wr(R_DX, 4, (uint64_t)(uint16_t)rd(R_CX, 2) << 12);
+	case 0xde: /* VCPI: the physical address of the 4 KB page CX (DE06h), the debug registers (DE09h:
+		 * Privateer's debugging) */
+		if (al == 0x06) wr(R_DX, 4, ems_phys((uint32_t)(uint16_t)rd(R_CX, 2) << 12));
 		result(al == 0x06 || al == 0x09 ? 0 : 0x84);
 		break;
 	case 0x51: /* reallocate handle DX to BX pages */

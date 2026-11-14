@@ -563,8 +563,17 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   aligned; 16 KB is the Mac's page size and EMS's). Switching modes remaps the 28 slots. Not before
   that call: WC1's two-player view forks, and must not share memory with the game. The web build
   keeps copying (aliases go wrong there). `ems_vram()` (vga.c, screenshots) is the real VGA memory.
-- INT 67h AX=DE06h (VCPI: physical address of a page; the SB driver's DMA buffer) answers the
-  linear address, DE09h (the debug registers, its "range watch" debugging) success.
+- The SB driver plays straight out of the EMS frame (F0000h-FBFFFh in JEMM's mode): it asks VCPI for
+  each page's physical address (INT 67h AX=DE06h) and programs the DMA with it. Answered with the
+  linear address, the DMA read whatever that address showed while the sound was mixed, the BIOS area
+  in plain real mode (every interrupt): the sound crackled, ~22000 jumps of a third of full scale in
+  a minute. `ems_phys()` now answers with the page's place in the EMS store (from 200000h, through
+  JEMM's map, whatever the mode), and sb.c reads the DMA through `ems_phys_byte()`. DE09h (the debug
+  registers, its "range watch" debugging) answers success.
+- Between single-cycle blocks (the next starts in the interrupt handler, a few samples later) the
+  emulated DAC dropped to 0, a click each block; it holds the last sample now, fading over 20 ms (a
+  held level stayed as an offset after the driver's 4-byte test block). `tools/` has no WAV check;
+  counting sample jumps over 6000 in a WC_WAV recording showed both.
 - DOS memory (dos.c): the game shrinks its block (AH=4Ah) and allocates the rest (AH=48h BX=FFFFh,
   then what is offered); 48h/49h/4Ah now keep a list of blocks below A000h (the program's block alone
   still always resizes, as before, for the other games).
