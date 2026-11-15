@@ -652,8 +652,11 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   116400:-lmb`, "Launch") the cockpit in space by 125000.
 - The game writes into its folder (a new game: PLAYTYPE.IFF, DELTSECT.IFF, PLAYSCOR.IFF; saves; the
   options): test in a copy (`--exe copy/PRCD.EXE`; ../game-privateer/test has symlinks to the TREs).
-- Righteous Fire (`priv r`, RF.TRE, RF.CFG) is not tried yet: PRCD.EXE gets the arguments after the
-  game folder (`out/priv/bin/priv <folder> r`).
+- Righteous Fire (`priv r`, RF.TRE, RF.CFG; GOG's launcher runs `priv r`): PRCD.EXE gets the arguments
+  after the game folder (`out/priv/bin/priv <folder> r`); it opens rf.cfg and D:rf.tre. Privateer's
+  script works unchanged (same menu, Quine registration, a landing pad at 110000, launch at 116000):
+  a new game reached the concourse (click 280,100 on the pad) and space, nav map included, with no
+  missing code. Missions, combat, landing and saving there are untried.
 - The web build doesn't do Privateer yet: no shared mappings there (aliased EMS pages), and the
   page knows WC.EXE and SM2.EXE only.
 

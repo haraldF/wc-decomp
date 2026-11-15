@@ -52,6 +52,9 @@ npm run decompile -- --game wc2 && npm run recomp -- --game wc2
 npm run play -- --game wc2      # or out/wc2/bin/wc2 ../game2
 ```
 
+Its music plays on the AdLib, and the speech (the cutscenes' dialogue and the wingmen's messages in
+flight; GOG's release includes the Speech Accessory Pack) on the emulated Sound Blaster.
+
 Its Special Operations 1 and 2 (`SO1.EXE`, `SO2.EXE`, in the same folder) are programs of their own,
 built the same way with `-- --game so1` and `-- --game so2` (into `out/so1/` and `out/so2/`, entry
 points in `entries-so1.txt`, `entries-so2.txt`). The drivers they load aren't in the repository, so
@@ -79,8 +82,14 @@ npm run decompile -- --game priv && npm run recomp -- --game priv
 npm run play -- --game priv     # or out/priv/bin/priv ../game-privateer/game
 ```
 
-Its music plays on the AdLib, and the speech (the cutscenes' dialogue and the wingmen's messages in
-flight; GOG's release includes the Speech Accessory Pack) on the emulated Sound Blaster.
+Its expansion, Righteous Fire, is in GOG's release too (`RF.TRE` from the same CD image, `RF.CFG`):
+it is the same program, started with `r` after the game folder, as GOG's launcher does (`priv r`).
+A new game was checked from the main menu through the landing pad and the concourse into space;
+missions, combat and saving in it are untried.
+
+```bash
+out/priv/bin/priv ../game-privateer/game r
+```
 
 After its intro, `SM2.EXE` asks a copy-protection question on a black screen ("Enter 5:"): in GOG's
 release the question isn't shown and any answer is accepted, so type anything and press Enter.
