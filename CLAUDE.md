@@ -676,6 +676,13 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   hits: every turret shot is followed (the objects new after the call), and one that ends before 90%
   of its life within 150 m of a ship hit it; a ship hit that leaves the object list within 5 s was
   destroyed (one Talon in the test). A shot's memory is reused at once, so a 300 m jump ends it too.
+  Aim (checked): the game's matrix for any yaw and pitch matches the intended direction within the
+  1/256 resolution; the two plasma guns' shots start ~15 m either side of the turret and fly ~920 m/s
+  relative to the ship (not quite 940). The current frame's time (DS:2768) is this frame's movement:
+  speeds from one frame's difference are exact. Misses are the fighters weaving: a lead with half or
+  all of their acceleration didn't help; holding fire while 1/2 |a| t^2 (t the shots' flight) is over
+  60 m did: three scripted fights (A/B/C: H5 with Militia hostile, turning differently) went from 45%
+  to 71% of the shots hitting, with as many hits. The user's own first count was 20% (106 shots).
   Calling game code from C:
   call_far pushes the arguments and a far return, sets CS and runs it, then restores the registers.
 - In H5 (and probably any loaded save) every gun starts off (+35h = 0): the guns fire only after a gun

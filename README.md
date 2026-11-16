@@ -95,13 +95,14 @@ One addition to the game: a ship's turrets fire by themselves (`runtime/turret.c
 guns on once in its view (F5, F6; keys 1-4 or G there, as for firing it yourself); from then on, while
 you fly from the cockpit, that turret takes a shot about once a second at the nearest hostile ship
 within its arc and two thirds of its guns' reach (about 2 km for plasma guns), aimed ahead of where the
-ship is going. With its guns off (as a loaded game starts) it stays quiet. It shoots through the game's
+ship is going, and holds fire while that ship weaves hard (`WC_TURRET_DRIFT`, metres). With its guns off (as a loaded game starts) it stays quiet. It shoots through the game's
 own gun code, as if you were in the turret and fired, so energy, refire time and damage are the game's.
 `WC_TURRET=0` turns it off; `WC_TURRET_EVERY` (ms) and `WC_TURRET_RANGE` (m) change the pace and the
 range; `WC_TURRET=debug` prints once a second what each turret sees and why it doesn't shoot. When
 the game ends (quit, or the window closed) the terminal shows how the turrets did, for example
 `wc: turrets: 10 salvos; of the shots 8 hit a ship (8 their target), 0 ended early elsewhere,
-4 missed, 8 still flying: 67% hit; ships destroyed after a hit: 1`. A hit is counted when a shot ends
+4 missed, 8 still flying: 67% hit; ships destroyed after a hit: 1`, and the hits by the distance
+the turret fired at. A hit is counted when a shot ends
 before its time near a ship (a miss flies its whole range), so it is an estimate, not the game's
 own count.
 
