@@ -657,6 +657,23 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   script works unchanged (same menu, Quine registration, a landing pad at 110000, launch at 116000):
   a new game reached the concourse (click 280,100 on the pad) and space, nav map included, with no
   missing code. Missions, combat, landing and saving there are untried.
+- Self-firing turrets (runtime/turret.c, a hook after the player's guns at 5b2b:048c in FUN_5b2b_0158,
+  where [BP+6] is the weapons and SI the world): every second, if not in a turret view, the nearest
+  hostile ship in a turret's arc and range is aimed at (yaw/pitch, the matrix by ovl134_0000/0243 as the
+  turret view makes it), the view (DS:143C, 4/5 = turret 1/2) and the weapons' current turret (+3Fh) set,
+  only that turret's guns on (+35h), and FUN_589b_0004 (the player's guns) called; then all restored.
+  Ships are the objects with the player's vtable in the list at DS:66D0 (node: next, object; position
+  longs at +14h, 256 = 1 m); hostile is the radar's test, FUN_2089_078e(pilot's faction +13h, player
+  DS:66B4) != 0 (pilot = vt+30h, then its vt+8). Turret objects (ovl135): DS:143D/143F, matrix at +4
+  (rows right, forward, up; forward = the shots' direction), place +28h (the Centurion's: 120 m behind),
+  yaw +34h, pitch +38h (256 = 1 degree; positive yaw turns the rear turret towards the ship's +x),
+  limits +3Ch..+48h, fitted +4Eh. Guns: +0 speed, +4 life (256 = 1 s: plasma 940 m/s, 3.4 s), +22h the
+  turret (0 front), +35h on. The shots keep the ship's velocity. Checked headless against hostile Talons
+  (a test copy of H5 with Militia at -300): at ~2 km about half the shots hit (they end early); from
+  3 km all missed, the Talons changed speed during the 3 s flight. Calling game code from C:
+  call_far pushes the arguments and a far return, sets CS and runs it, then restores the registers.
+- In H5 (and probably any loaded save) every gun starts off (+35h = 0): the guns fire only after a gun
+  key (1-4 or G). Scripted fire tests need that first.
 - The web build doesn't do Privateer yet: no shared mappings there (aliased EMS pages), and the
   page knows WC.EXE and SM2.EXE only.
 
@@ -718,6 +735,10 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 
 - TypeScript run directly by Node (≥ 23.6), ESM, `npm run typecheck`. Java Ghidra scripts in
   `ghidra_scripts/`. C11 runtime in `runtime/`, tab-indented, short comments.
-- Debug env vars (`WC_KEYS` key names: esc, enter, space, tab, backspace, arrows, f1-f3, f10, alt, ctrl, characters): `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
+- Debug env vars (`WC_KEYS` key names: esc, enter, space, tab, backspace, arrows, f1-f10, alt, ctrl, characters): `WC_TRACE` (1 DOS/IRQ, 2 every instruction, 3 more), `WC_KEYS`, `WC_LOAD_SEG`,
   `WC_POKE`, `WC_WATCH`, `WC_SCREENSHOT`, `WC_LOADED_DIR`, `WC_HEADLESS`, `WC_CYCLES`, `WC_MOUSE`, `WC_WAV`, `WC_EMS`, `WC_WARP`, `WC_JOYSTICK`, `WC_STICK_KEYS` (stick buttons to keys, pc.c), `WC_ROLL_AXIS`, `WC_MT32`, `WC_MT32_MACHINE`, `WC_SB`, `WC_DUMP` (1 MB memory file at a `quit` key or the first
-  write into driver code; watch hits print the call stack). Ctrl-C prints a report.
+  write into driver code; watch hits print the call stack), `WC_TIME` (DOS's clock starts at these
+  seconds since 1970 and runs on emulated time: with the instruction clock, Privateer's runs repeat
+  exactly, so memory dumps of two runs can be compared), `WC_CALLS=from:to[:addr]` (counts the indirect
+  calls, virtual methods included, by target between those ticks, in the report; with addr the callers
+  of that target: compare two runs to find the code an action runs). Ctrl-C prints a report.

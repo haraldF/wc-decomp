@@ -677,7 +677,17 @@ int net_ahead(uint64_t at, int *x, int *y, int *roll, int *throttle, int *fire, 
 	return b >= local_top;
 }
 
+/* WC_TIME=seconds since 1970 starts DOS's clock there and runs it on emulated time: with the
+   instruction clock, runs of games that seed their randomness from the time repeat exactly. */
 time_t net_time(void)
 {
-	return wc_net_on ? time_base + (time_t)(pc_now_ns() / 1000000000u) : time(NULL);
+	static int fixed = -1;
+	static time_t fixed_base;
+	if (fixed < 0) {
+		const char *s = getenv("WC_TIME");
+		fixed = s && *s;
+		if (fixed) fixed_base = (time_t)strtoll(s, NULL, 10);
+	}
+	if (wc_net_on) return time_base + (time_t)(pc_now_ns() / 1000000000u);
+	return fixed ? fixed_base + (time_t)(pc_now_ns() / 1000000000u) : time(NULL);
 }

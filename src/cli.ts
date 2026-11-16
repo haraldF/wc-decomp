@@ -82,6 +82,7 @@ const GAMES: Record<string, Game> = {
     // GOG's DOSBox runs it at cycles=max; it paces itself by its timer, and at 12000 the intro's 3D
     // scenes stalled for 0.5 s at a time, up to 100000 still dropped to ~8 fps (the M4 does ~900000)
     out: "priv", entries: "entries-priv.txt", rates: 0, roll: 0, cycles: 300000, loadSeg: 0x200, stick: 64, sweep: true,
+    hooks: [0x5b73c /* after the player's guns, FUN_5b2b_0158: the turrets fire by themselves (turret.c) */],
     unhandled: 1 /* FEMMS: data decoded as code, in seg_unknown.c */ },
 };
 const gameName = values.game!;

@@ -214,6 +214,8 @@ int main(int argc, char **argv)
 	net_init();
 	pc_init(!host_open());
 
+	void calls_init(void);
+	calls_init();
 	const char *watch = getenv("WC_WATCH");
 	wc_watch = watch ? (uint32_t)strtoul(watch, NULL, 16) : 0;
 	const char *strict = getenv("WC_STRICT");

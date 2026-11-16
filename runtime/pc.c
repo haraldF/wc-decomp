@@ -215,7 +215,8 @@ static void kbd_push(uint8_t scancode)
 static const struct { const char *name; char ch; uint8_t code; } keys[] = {
 	{ "esc", 27, 0x01 }, { "enter", '\r', 0x1c }, { "space", ' ', 0x39 }, { "tab", '\t', 0x0f },
 	{ "backspace", 127, 0x0e }, { "up", 0, 0x48 }, { "down", 0, 0x50 }, { "left", 0, 0x4b },
-	{ "right", 0, 0x4d }, { "f1", 0, 0x3b }, { "f2", 0, 0x3c }, { "f3", 0, 0x3d }, { "f10", 0, 0x44 },
+	{ "right", 0, 0x4d }, { "f1", 0, 0x3b }, { "f2", 0, 0x3c }, { "f3", 0, 0x3d }, { "f4", 0, 0x3e },
+	{ "f5", 0, 0x3f }, { "f6", 0, 0x40 }, { "f7", 0, 0x41 }, { "f8", 0, 0x42 }, { "f9", 0, 0x43 }, { "f10", 0, 0x44 },
 	{ "alt", 0, 0x38 }, { "ctrl", 0, 0x1d },
 };
 static const char row_chars[] = "1234567890-=\0\0qwertyuiop[]\0\0asdfghjkl;'`\0\\zxcvbnm,./";
@@ -303,6 +304,7 @@ static struct { uint64_t tick; uint8_t code; char how; int16_t mx, my; } script[
 static int script_mx = 160, script_my = 100, script_buttons, script_jx, script_jy, script_jroll, script_jbuttons;
 static int script_len, script_pos;
 static uint64_t ticks, script_jrelease;
+uint64_t pc_ticks(void) { return ticks; }
 static uint8_t script_held;          /* key pressed with + and not released yet */
 static uint64_t script_repeat_ns;    /* when it repeats next (typematic: 0.5 s, then 10.9 per second) */
 

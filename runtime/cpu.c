@@ -205,6 +205,7 @@ enum { FRAME_COPY = 0x77454 };
 void joystick_roll(uint16_t var);
 
 void friend_hook(uint32_t at);
+void turret_hook(uint32_t at);
 void view_rates(void);
 
 void wc_hook(uint32_t at)
@@ -213,7 +214,10 @@ void wc_hook(uint32_t at)
 		joystick_roll(wc_program.roll);
 		view_rates();
 	}
-	else friend_hook(at);
+	else {
+		friend_hook(at);
+		turret_hook(at);
+	}
 }
 
 void run(uint32_t linear)
@@ -265,8 +269,47 @@ static int find_in(const uint32_t *addr, uint32_t count, uint32_t code)
 	return lo < count && addr[lo] == code ? (int)lo : -1;
 }
 
+/* WC_CALLS=from:to (timer ticks of WC_KEYS): count the indirect calls and jumps (virtual methods,
+ * function pointers) by target in that window; the report lists them. Compare two runs. */
+static uint32_t calls_addr[1 << 16], calls_n[1 << 16];
+static uint64_t calls_from = 1, calls_to;
+static uint32_t calls_stack, calls_stacks; /* WC_CALLS=from:to:addr: also the callers of addr (5000 times at most) */
+uint64_t pc_ticks(void);
+static void print_callers(FILE *f);
+
+static void count_call(uint32_t code)
+{
+	uint64_t t = pc_ticks();
+	if (t < calls_from || t >= calls_to) return;
+	if (code == calls_stack && calls_stacks < 5000) {
+		calls_stacks++;
+		fprintf(stderr, "wc: call to %05x at tick %llu\n", code, (unsigned long long)t);
+		print_callers(stderr);
+	}
+	for (uint32_t h = (code * 2654435761u) >> 16;; h = (h + 1) & 0xffff) {
+		if (!calls_addr[h]) calls_addr[h] = code;
+		if (calls_addr[h] == code) { calls_n[h]++; return; }
+	}
+}
+
+static void calls_report(FILE *f)
+{
+	if (!calls_to) return;
+	for (uint32_t h = 0; h < 1 << 16; h++)
+		if (calls_addr[h]) fprintf(f, "wc: calls %05x %u\n", calls_addr[h], calls_n[h]);
+}
+
+void calls_init(void)
+{
+	const char *s = getenv("WC_CALLS");
+	unsigned long long a, b;
+	unsigned c = 0;
+	if (s && sscanf(s, "%llu:%llu:%x", &a, &b, &c) >= 2) calls_from = a, calls_to = b, calls_stack = c;
+}
+
 void run_code(uint32_t code)
 {
+	if (calls_to) count_call(code);
 	const struct wc_driver *d = driver_code(code);
 	if (d) {
 		int k = find_in(d->addr, d->count, code);
@@ -331,6 +374,7 @@ void cpu_report(FILE *f)
 		(unsigned long long)wc_video_writes);
 	dump_regs(f);
 	print_callers(f);
+	calls_report(f);
 }
 
 _Noreturn void cpu_fail(const char *what, uint32_t at)
