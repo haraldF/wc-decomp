@@ -672,7 +672,11 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   limits +3Ch..+48h, fitted +4Eh. Guns: +0 speed, +4 life (256 = 1 s: plasma 940 m/s, 3.4 s), +22h the
   turret (0 front), +35h on. The shots keep the ship's velocity. Checked headless against hostile Talons
   (a test copy of H5 with Militia at -300): at ~2 km about half the shots hit (they end early); from
-  3 km all missed, the Talons changed speed during the 3 s flight. Calling game code from C:
+  3 km all missed, the Talons changed speed during the 3 s flight. At exit (atexit) a report counts
+  hits: every turret shot is followed (the objects new after the call), and one that ends before 90%
+  of its life within 150 m of a ship hit it; a ship hit that leaves the object list within 5 s was
+  destroyed (one Talon in the test). A shot's memory is reused at once, so a 300 m jump ends it too.
+  Calling game code from C:
   call_far pushes the arguments and a far return, sets CS and runs it, then restores the registers.
 - In H5 (and probably any loaded save) every gun starts off (+35h = 0): the guns fire only after a gun
   key (1-4 or G). Scripted fire tests need that first.

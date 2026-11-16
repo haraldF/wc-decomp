@@ -98,7 +98,12 @@ within its arc and two thirds of its guns' reach (about 2 km for plasma guns), a
 ship is going. With its guns off (as a loaded game starts) it stays quiet. It shoots through the game's
 own gun code, as if you were in the turret and fired, so energy, refire time and damage are the game's.
 `WC_TURRET=0` turns it off; `WC_TURRET_EVERY` (ms) and `WC_TURRET_RANGE` (m) change the pace and the
-range; `WC_TURRET=debug` prints once a second what each turret sees and why it doesn't shoot.
+range; `WC_TURRET=debug` prints once a second what each turret sees and why it doesn't shoot. When
+the game ends (quit, or the window closed) the terminal shows how the turrets did, for example
+`wc: turrets: 10 salvos; of the shots 8 hit a ship (8 their target), 0 ended early elsewhere,
+4 missed, 8 still flying: 67% hit; ships destroyed after a hit: 1`. A hit is counted when a shot ends
+before its time near a ship (a miss flies its whole range), so it is an estimate, not the game's
+own count.
 
 After its intro, `SM2.EXE` asks a copy-protection question on a black screen ("Enter 5:"): in GOG's
 release the question isn't shown and any answer is accepted, so type anything and press Enter.

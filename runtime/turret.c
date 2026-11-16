@@ -8,7 +8,7 @@
  * its view is made current for the moment, and the player's gun routine (FUN_589b_0004) fires the
  * turret's guns that are on, with their energy, refire time and damage as usual. Then all is put back.
  *
- * WC_TURRET=debug reports once a second what each turret sees (its guns, the hostile ships near,
+ * At exit the hits are reported (follow_shots). WC_TURRET=debug reports once a second what each turret sees (its guns, the hostile ships near,
  * and why it doesn't shoot at them), and each shot; WC_TURRET_EVERY=ms between a turret's shots (1000),
  * WC_TURRET_RANGE=m (two thirds of its guns' reach: plasma flies 940 m/s for 3.4 s, so 2100 m; from
  * 3 km the shots took 3 s, and the fighters changed speed meanwhile). */
@@ -39,7 +39,7 @@ enum {
 static int turret_on = -1, turret_debug;
 static double every_ns = 1000e6, range_m;
 static uint32_t ds_base;
-static uint64_t frames, next_shot[2], shots;
+static uint64_t frames, next_shot[2];
 
 static uint16_t dw(uint32_t off) { return (uint16_t)mrd(ds_base + (off & 0xffff), 2); }
 static int32_t dl(uint32_t off) { return (int32_t)mrd(ds_base + (off & 0xffff), 4); }
@@ -128,49 +128,123 @@ static void velocity(uint16_t obj, double v[3])
 
 static double dot(const double a[3], const double b[3]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 
-/* WC_TURRET=debug: each shot's closest approach to its target and how long it flew (a miss flies the
- * guns' whole life, about 105 frames for plasma; one that ends sooner hit something). */
-static struct { uint16_t shot, vt, target; double min; uint64_t born; } follow[16];
+/* What became of the shots, for the report at exit. A shot that hits something is removed at once;
+ * one that misses flies the guns' whole life (3.4 s for plasma, a hit from 2 km ends after ~2 s). So
+ * a shot that ended before 90% of its life within 150 m of a ship hit that ship (by this measure, not
+ * the game's own count); a ship hit that vanished within 5 s after was destroyed. A shot's memory can
+ * be reused at once by the next object: a jump of over 300 m ends it too. */
+static struct { uint16_t shot, vt, target; int32_t pos[3]; double min; uint64_t born, seen, life; } follow[32];
+static struct { uint16_t ship; uint64_t when; } struck[16];
+static uint64_t salvos, hits, hits_target, early, missed, destroyed;
+static uint16_t ship_vt;
+
+static int alive_as(uint16_t obj, uint16_t vt, const uint16_t *objs, int no)
+{
+	for (int k = 0; k < no; k++) if (objs[k] == obj) return dw(obj) == vt;
+	return 0;
+}
 
 static void follow_shots(void)
 {
-	for (int j = 0; j < 16; j++) {
+	uint16_t objs[512];
+	int no = 0;
+	for (uint16_t node = dw(OBJECTS); node && no < 512; node = dw(node)) objs[no++] = dw(node + 2);
+	const uint64_t now = pc_now_ns();
+	for (int j = 0; j < 32; j++) {
 		if (!follow[j].shot) continue;
-		int alive = 0;
-		for (uint16_t node = dw(OBJECTS), k = 0; node && k < 512; node = dw(node), k++) alive |= dw(node + 2) == follow[j].shot;
-		if (alive && dw(follow[j].shot) == follow[j].vt) {
-			double d = 0;
-			for (int c = 0; c < 3; c++) {
-				const double x = (dl(follow[j].shot + 0x14 + 4 * c) - dl(follow[j].target + 0x14 + 4 * c)) / 256.0;
-				d += x * x;
-			}
+		int32_t pos[3];
+		double moved = 0, d = 0;
+		for (int c = 0; c < 3; c++) {
+			pos[c] = dl(follow[j].shot + 0x14 + 4 * c);
+			const double m = (pos[c] - follow[j].pos[c]) / 256.0, x = (pos[c] - dl(follow[j].target + 0x14 + 4 * c)) / 256.0;
+			moved += m * m;
+			d += x * x;
+		}
+		if (alive_as(follow[j].shot, follow[j].vt, objs, no) && moved < 300.0 * 300.0) {
+			memcpy(follow[j].pos, pos, sizeof pos);
+			follow[j].seen = now;
 			if (sqrt(d) < follow[j].min) follow[j].min = sqrt(d);
 			continue;
 		}
-		fprintf(stderr, "wc: turret: shot %04x came within %.0f m of %04x, flew %llu frames\n", follow[j].shot, follow[j].min,
-			follow[j].target, (unsigned long long)(frames - follow[j].born));
+		/* It ended: where it was last, which ship was nearest. */
+		double nearest = 1e9;
+		uint16_t ship = 0;
+		for (int k = 0; k < no; k++) {
+			if (!objs[k] || dw(objs[k]) != ship_vt || objs[k] == dw(PLAYER)) continue;
+			double e = 0;
+			for (int c = 0; c < 3; c++) {
+				const double x = (follow[j].pos[c] - dl(objs[k] + 0x14 + 4 * c)) / 256.0;
+				e += x * x;
+			}
+			if (sqrt(e) < nearest) nearest = sqrt(e), ship = objs[k];
+		}
+		const uint64_t flew = follow[j].seen - follow[j].born;
+		const int ended_early = flew * 10 < follow[j].life * 9;
+		if (ended_early && (nearest < 150 || follow[j].min < 150)) {
+			hits++;
+			if (follow[j].min < 150 || ship == follow[j].target) {
+				hits_target++;
+				ship = follow[j].target;
+			}
+			/* remembered once, and only while it is there (a shot can end after its ship blew up) */
+			int s, free = -1;
+			for (s = 0; s < 16 && struck[s].ship != ship; s++)
+				if (free < 0 && !struck[s].ship) free = s;
+			if (s == 16 && free >= 0 && alive_as(ship, ship_vt, objs, no)) s = free;
+			if (s < 16) struck[s].ship = ship, struck[s].when = now;
+		}
+		else if (ended_early) early++;
+		else missed++;
+		if (turret_debug)
+			fprintf(stderr, "wc: turret: shot %04x came within %.0f m of %04x, flew %.2f s: %s\n", follow[j].shot, follow[j].min,
+				follow[j].target, flew / 1e9, ended_early && (nearest < 150 || follow[j].min < 150) ? "hit" : ended_early ? "ended early" : "missed");
 		follow[j].shot = 0;
+	}
+	/* Ships hit that are gone now: destroyed. */
+	for (int s = 0; s < 16; s++) {
+		if (!struck[s].ship) continue;
+		if (!alive_as(struck[s].ship, ship_vt, objs, no)) {
+			destroyed++;
+			if (turret_debug) fprintf(stderr, "wc: turret: %04x destroyed\n", struck[s].ship);
+			struck[s].ship = 0;
+		}
+		else if (now - struck[s].when > 5000000000u) struck[s].ship = 0;
 	}
 }
 
-static int follow_new(const uint16_t *before, int nb, uint16_t target)
+static int follow_new(const uint16_t *before, int nb, uint16_t target, double life_s)
 {
 	int made = 0;
-	for (uint16_t node = dw(OBJECTS), k = 0; node && k < 256; node = dw(node), k++) {
+	for (uint16_t node = dw(OBJECTS), k = 0; node && k < 512; node = dw(node), k++) {
 		const uint16_t obj = dw(node + 2);
 		int j;
 		for (j = 0; j < nb && before[j] != obj; j++) {}
 		if (j < nb) continue;
 		made++;
-		for (j = 0; j < 16 && follow[j].shot; j++) {}
-		if (j == 16) continue;
+		for (j = 0; j < 32 && follow[j].shot; j++) {}
+		if (j == 32) continue;
 		follow[j].shot = obj;
 		follow[j].vt = dw(obj);
 		follow[j].target = target;
+		for (int c = 0; c < 3; c++) follow[j].pos[c] = dl(obj + 0x14 + 4 * c);
 		follow[j].min = 1e9;
-		follow[j].born = frames;
+		follow[j].born = follow[j].seen = pc_now_ns();
+		follow[j].life = (uint64_t)(life_s * 1e9);
 	}
 	return made;
+}
+
+/* At exit: what the turrets did. */
+static void turret_report(void)
+{
+	if (!salvos) return;
+	const uint64_t ended = hits + early + missed;
+	int flying = 0;
+	for (int j = 0; j < 32; j++) flying += follow[j].shot != 0;
+	fprintf(stderr, "wc: turrets: %llu salvos; of the shots %llu hit a ship (%llu their target), %llu ended early elsewhere, "
+		"%llu missed, %d still flying: %.0f%% hit; ships destroyed after a hit: %llu\n", (unsigned long long)salvos,
+		(unsigned long long)hits, (unsigned long long)hits_target, (unsigned long long)early, (unsigned long long)missed,
+		flying, ended ? 100.0 * (double)hits / (double)ended : 0.0, (unsigned long long)destroyed);
 }
 
 /* Turret t (0, 1) shoots at the nearest hostile ship in its arc and range, if any. */
@@ -285,19 +359,18 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 	const uint8_t view = M[ds_base + VIEW], group = M[sys + 0x3f];
 	M[ds_base + VIEW] = (uint8_t)(4 + t);
 	M[sys + 0x3f] = (uint8_t)(t + 1);
-	uint16_t before[256];
+	uint16_t before[512];
 	int nb = 0;
-	if (turret_debug)
-		for (uint16_t node = dw(OBJECTS), k = 0; node && k < 256; node = dw(node), k++) before[nb++] = dw(node + 2);
+	for (uint16_t node = dw(OBJECTS); node && nb < 512; node = dw(node)) before[nb++] = dw(node + 2);
 	const uint16_t c[3] = { soff, sseg, world };
 	call_code(0x589b, 0x0004, 3, c);
-	const int made = turret_debug ? follow_new(before, nb, target) : 0;
+	const int made = follow_new(before, nb, target, reach / speed);
+	if (made) salvos++;
 	M[sys + 0x3f] = group;
 	M[ds_base + VIEW] = view;
 	memcpy(M + ds_base + (uint16_t)(tur + 4), saved, sizeof saved);
 	wr(R_SP, 2, sp);
 	next_shot[t] = now + (uint64_t)every_ns;
-	shots++;
 	if (turret_debug)
 		fprintf(stderr, "wc: turret %d fires at %04x, %.0f m, yaw %.0f pitch %.0f: %d shots (frame %llu, tick %llu)\n", t + 1, target,
 			best, yaw, pitch, made, (unsigned long long)frames, (unsigned long long)pc_ticks());
@@ -313,6 +386,7 @@ void turret_hook(uint32_t at)
 		const char *r = getenv("WC_TURRET_RANGE"), *e = getenv("WC_TURRET_EVERY");
 		if (r && atof(r) > 0) range_m = atof(r);
 		if (e && atof(e) > 0) every_ns = atof(e) * 1e6;
+		if (turret_on) atexit(turret_report);
 	}
 	if (!turret_on || strcmp(wc_program.exe, "PRCD.EXE")) return;
 	ds_base = (uint32_t)rd(R_DS, 2) * 16;
@@ -322,7 +396,8 @@ void turret_hook(uint32_t at)
 	if (!player || (uint16_t)mrd(lin(sseg, (uint16_t)(soff + 0xa)), 2) != player) return;
 	frames++;
 	track(dw(player));
-	if (turret_debug) follow_shots();
+	ship_vt = dw(player);
+	follow_shots();
 	const uint8_t view = M[ds_base + VIEW];
 	if (view == 4 || view == 5) return; /* the player is in a turret */
 	for (int t = 0; t < 2; t++) turret_fire(t, sseg, soff, (uint16_t)rd(R_SI, 2), player);
