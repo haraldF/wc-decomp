@@ -11,8 +11,9 @@
  * At exit the hits are reported (follow_shots). WC_TURRET=debug reports once a second what each turret sees (its guns, the hostile ships near,
  * and why it doesn't shoot at them), and each shot; WC_TURRET_EVERY=ms between a turret's shots (1000),
  * WC_TURRET_DRIFT=m (60: how far the target may weave off the aim while the shots fly, at its
- * present acceleration; it waits for a steadier moment), WC_TURRET_RANGE=m (two thirds of its guns' reach: plasma flies 940 m/s for 3.4 s, so 2100 m; from
- * 3 km the shots took 3 s, and the fighters changed speed meanwhile). */
+ * present acceleration; it waits for a steadier moment), WC_TURRET_RANGE=m (1500, or two thirds of
+ * its guns' reach if that is less: plasma flies 940 m/s for 3.4 s. In the user's fights, with 60 m
+ * of drift, shots from under 1.5 km hit 25 of 42 times, from farther 3 of 14). */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -311,7 +312,7 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 		fprintf(stderr, ", %.0f m/s, reach %.0f m (frame %llu)\n", speed, reach, (unsigned long long)frames);
 	}
 	if (!own || speed <= 0) return;
-	const double range = range_m > 0 ? range_m : reach * 2 / 3;
+	const double range = range_m > 0 ? range_m : fmin(1500, reach * 2 / 3);
 
 	/* The ship's axes (rows) and the turret's place; one behind the ship looks back (ovl134_0000's
 	 * mount 1: right and forward reversed), others forward (2, 3: top and bottom). */

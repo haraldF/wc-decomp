@@ -683,6 +683,8 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   all of their acceleration didn't help; holding fire while 1/2 |a| t^2 (t the shots' flight) is over
   60 m did: three scripted fights (A/B/C: H5 with Militia hostile, turning differently) went from 45%
   to 71% of the shots hitting, with as many hits. The user's own first count was 20% (106 shots).
+  Then, in the user's fights: 50% (56 shots), 59-60% from under 1.5 km, 3 of 14 from farther: the
+  range is 1.5 km by default (two thirds of the guns' reach if less), at the user's request.
   Calling game code from C:
   call_far pushes the arguments and a far return, sets CS and runs it, then restores the registers.
 - In H5 (and probably any loaded save) every gun starts off (+35h = 0): the guns fire only after a gun
