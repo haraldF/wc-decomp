@@ -1,11 +1,12 @@
 /* Privateer: turrets that fire by themselves (WC_TURRET=0 off).
  *
  * The game fires a turret's guns only while its view (F5, F6) is on and the player aims it. Here,
- * after the player's guns each frame (a hook in FUN_5b2b_0158), each turret now and then takes a shot
+ * after the player's guns each frame (a hook in FUN_5b2b_0158), each turret whose guns the player
+ * switched on in its view (keys 1-4 or G there; the switch stays) now and then takes a shot
  * at the nearest hostile ship within its arc and range, through the game's own code: the turret is
  * turned towards where the ship will be (its yaw and pitch; ovl134 makes the matrix, as in its view),
  * its view is made current for the moment, and the player's gun routine (FUN_589b_0004) fires the
- * turret's guns, with their energy, refire time and damage as usual. Then all is put back.
+ * turret's guns that are on, with their energy, refire time and damage as usual. Then all is put back.
  *
  * WC_TURRET=debug reports once a second what each turret sees (its guns, the hostile ships near,
  * and why it doesn't shoot at them), and each shot; WC_TURRET_EVERY=ms between a turret's shots (1000),
@@ -194,13 +195,14 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 		const uint16_t g[3] = { (uint16_t)(soff + 0xe), sseg, (uint16_t)i };
 		const uint32_t gun = call_code(0x592c, 0x08b6, 3, g);
 		guns[i] = lin(gun >> 16, gun & 0xffff);
-		if (M[guns[i] + 0x22] == t + 1 && !own++) {
+		/* only the guns switched on in its view (keys 1-4, G there) */
+		if (M[guns[i] + 0x22] == t + 1 && M[guns[i] + 0x35] && !own++) {
 			speed = (int32_t)mrd(guns[i], 4) / 256.0;
 			reach = speed * (int32_t)mrd(guns[i] + 4, 4) / 256.0;
 		}
 	}
 	if (status) {
-		fprintf(stderr, "wc: turret %d: %d guns, %d of them its own:", t + 1, n, own);
+		fprintf(stderr, "wc: turret %d: %d guns, %d of them its own and on:", t + 1, n, own);
 		for (int i = 0; i < n && i < 16; i++)
 			if (M[guns[i] + 0x22] == t + 1)
 				fprintf(stderr, " on %d energy %d/%d", M[guns[i] + 0x35], (int32_t)mrd(guns[i] + 0x2f, 4), (int32_t)mrd(guns[i] + 0x2b, 4));
@@ -264,8 +266,8 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 	if (!target) return;
 
 	/* Turned there (ovl134_0000(out, turret, ship, mount) gives the base orientation, ovl134_0243
-	 * (turret, those 9 longs by value) applies the yaw and pitch); its view current and only its guns
-	 * on, for the moment. */
+	 * (turret, those 9 longs by value) applies the yaw and pitch); its view current for the moment (FUN_589b_0004 fires the guns of the
+	 * current turret that are on). */
 	uint8_t saved[0x38];
 	memcpy(saved, M + ds_base + (uint16_t)(tur + 4), sizeof saved);
 	mwr(ds_base + (uint16_t)(tur + 0x34), 4, (uint32_t)(int32_t)lround(yaw * 256));
@@ -281,13 +283,8 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 	call_code(0xd2dd, 0x0243, 19, m);
 	const uint32_t sys = lin(sseg, soff);
 	const uint8_t view = M[ds_base + VIEW], group = M[sys + 0x3f];
-	uint8_t was_on[16];
 	M[ds_base + VIEW] = (uint8_t)(4 + t);
 	M[sys + 0x3f] = (uint8_t)(t + 1);
-	for (int i = 0; i < n && i < 16; i++) {
-		was_on[i] = M[guns[i] + 0x35];
-		M[guns[i] + 0x35] = M[guns[i] + 0x22] == t + 1;
-	}
 	uint16_t before[256];
 	int nb = 0;
 	if (turret_debug)
@@ -295,7 +292,6 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 	const uint16_t c[3] = { soff, sseg, world };
 	call_code(0x589b, 0x0004, 3, c);
 	const int made = turret_debug ? follow_new(before, nb, target) : 0;
-	for (int i = 0; i < n && i < 16; i++) M[guns[i] + 0x35] = was_on[i];
 	M[sys + 0x3f] = group;
 	M[ds_base + VIEW] = view;
 	memcpy(M + ds_base + (uint16_t)(tur + 4), saved, sizeof saved);

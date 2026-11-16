@@ -658,10 +658,12 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   a new game reached the concourse (click 280,100 on the pad) and space, nav map included, with no
   missing code. Missions, combat, landing and saving there are untried.
 - Self-firing turrets (runtime/turret.c, a hook after the player's guns at 5b2b:048c in FUN_5b2b_0158,
-  where [BP+6] is the weapons and SI the world): every second, if not in a turret view, the nearest
+  where [BP+6] is the weapons and SI the world): only turrets whose guns the player switched on in
+  their view (the user's choice; each gun's +35h stays as set there, the cockpit view doesn't clear it,
+  and a loaded game starts with every gun off). Every second, if not in a turret view, the nearest
   hostile ship in a turret's arc and range is aimed at (yaw/pitch, the matrix by ovl134_0000/0243 as the
   turret view makes it), the view (DS:143C, 4/5 = turret 1/2) and the weapons' current turret (+3Fh) set,
-  only that turret's guns on (+35h), and FUN_589b_0004 (the player's guns) called; then all restored.
+  and FUN_589b_0004 (the player's guns: those on, of the current turret) called; then all restored.
   Ships are the objects with the player's vtable in the list at DS:66D0 (node: next, object; position
   longs at +14h, 256 = 1 m); hostile is the radar's test, FUN_2089_078e(pilot's faction +13h, player
   DS:66B4) != 0 (pilot = vt+30h, then its vt+8). Turret objects (ovl135): DS:143D/143F, matrix at +4
