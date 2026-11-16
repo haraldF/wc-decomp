@@ -96,7 +96,9 @@ the cockpit, each turret takes a shot about once a second at the nearest hostile
 and two thirds of its guns' reach (about 2 km for plasma guns), aimed ahead of where the ship is going.
 It shoots through the game's own gun code, as if you had switched to the turret (F5, F6) and fired, so
 energy, refire time and damage are the game's. `WC_TURRET=0` turns it off; `WC_TURRET_EVERY` (ms) and
-`WC_TURRET_RANGE` (m) change the pace and the range.
+`WC_TURRET_RANGE` (m) change the pace and the range; `WC_TURRET=debug` prints once a second what each
+turret sees and why it doesn't shoot. The guns' on/off switches don't matter: the turret switches its
+own guns on just for its shot.
 
 After its intro, `SM2.EXE` asks a copy-protection question on a black screen ("Enter 5:"): in GOG's
 release the question isn't shown and any answer is accepted, so type anything and press Enter.

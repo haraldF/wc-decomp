@@ -7,7 +7,8 @@
  * its view is made current for the moment, and the player's gun routine (FUN_589b_0004) fires the
  * turret's guns, with their energy, refire time and damage as usual. Then all is put back.
  *
- * WC_TURRET=debug reports the shots; WC_TURRET_EVERY=ms between a turret's shots (1000),
+ * WC_TURRET=debug reports once a second what each turret sees (its guns, the hostile ships near,
+ * and why it doesn't shoot at them), and each shot; WC_TURRET_EVERY=ms between a turret's shots (1000),
  * WC_TURRET_RANGE=m (two thirds of its guns' reach: plasma flies 940 m/s for 3.4 s, so 2100 m; from
  * 3 km the shots took 3 s, and the fighters changed speed meanwhile). */
 #include <math.h>
@@ -151,21 +152,24 @@ static void follow_shots(void)
 	}
 }
 
-static void follow_new(const uint16_t *before, int nb, uint16_t target)
+static int follow_new(const uint16_t *before, int nb, uint16_t target)
 {
+	int made = 0;
 	for (uint16_t node = dw(OBJECTS), k = 0; node && k < 256; node = dw(node), k++) {
 		const uint16_t obj = dw(node + 2);
 		int j;
 		for (j = 0; j < nb && before[j] != obj; j++) {}
 		if (j < nb) continue;
+		made++;
 		for (j = 0; j < 16 && follow[j].shot; j++) {}
-		if (j == 16) return;
+		if (j == 16) continue;
 		follow[j].shot = obj;
 		follow[j].vt = dw(obj);
 		follow[j].target = target;
 		follow[j].min = 1e9;
 		follow[j].born = frames;
 	}
+	return made;
 }
 
 /* Turret t (0, 1) shoots at the nearest hostile ship in its arc and range, if any. */
@@ -175,6 +179,10 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 	if (!tur || !M[ds_base + (uint16_t)(tur + 0x4e)]) return;
 	const uint64_t now = pc_now_ns();
 	if (now < next_shot[t]) return;
+	/* WC_TURRET=debug: once a second what the turret sees */
+	static uint64_t status_ns[2];
+	const int status = turret_debug && now >= status_ns[t];
+	if (status) status_ns[t] = now + 1000000000u;
 
 	/* Its guns, and their speed and reach from the first. */
 	const uint16_t l[2] = { (uint16_t)(soff + 0xe), sseg };
@@ -190,6 +198,13 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 			speed = (int32_t)mrd(guns[i], 4) / 256.0;
 			reach = speed * (int32_t)mrd(guns[i] + 4, 4) / 256.0;
 		}
+	}
+	if (status) {
+		fprintf(stderr, "wc: turret %d: %d guns, %d of them its own:", t + 1, n, own);
+		for (int i = 0; i < n && i < 16; i++)
+			if (M[guns[i] + 0x22] == t + 1)
+				fprintf(stderr, " on %d energy %d/%d", M[guns[i] + 0x35], (int32_t)mrd(guns[i] + 0x2f, 4), (int32_t)mrd(guns[i] + 0x2b, 4));
+		fprintf(stderr, ", %.0f m/s, reach %.0f m (frame %llu)\n", speed, reach, (unsigned long long)frames);
 	}
 	if (!own || speed <= 0) return;
 	const double range = range_m > 0 ? range_m : reach * 2 / 3;
@@ -222,6 +237,13 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 		double d[3], v[3];
 		for (int i = 0; i < 3; i++) d[i] = dl(obj + 0x14 + 4 * i) / 256.0 - P[i];
 		const double dist = sqrt(dot(d, d));
+		if (status && dist < 20000 && hostile(obj, player)) {
+			const double lx = dot(d, base[0]), ly = dot(d, base[1]), lz = dot(d, base[2]);
+			const double y = -atan2(lx, ly) * 180 / M_PI, p = atan2(lz, hypot(lx, ly)) * 180 / M_PI;
+			fprintf(stderr, "wc: turret %d: hostile %04x at %.0f m, yaw %.0f pitch %.0f%s%s\n", t + 1, obj, dist, y, p,
+				dist >= range ? ", out of range" : "",
+				y < yaw_lo || y > yaw_hi || p < pitch_lo || p > pitch_hi ? ", out of its arc" : "");
+		}
 		if (dist >= best || dist < 1) continue;
 		velocity(obj, v);
 		for (int it = 0; it < 3; it++) {
@@ -272,7 +294,7 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 		for (uint16_t node = dw(OBJECTS), k = 0; node && k < 256; node = dw(node), k++) before[nb++] = dw(node + 2);
 	const uint16_t c[3] = { soff, sseg, world };
 	call_code(0x589b, 0x0004, 3, c);
-	if (turret_debug) follow_new(before, nb, target);
+	const int made = turret_debug ? follow_new(before, nb, target) : 0;
 	for (int i = 0; i < n && i < 16; i++) M[guns[i] + 0x35] = was_on[i];
 	M[sys + 0x3f] = group;
 	M[ds_base + VIEW] = view;
@@ -281,8 +303,8 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 	next_shot[t] = now + (uint64_t)every_ns;
 	shots++;
 	if (turret_debug)
-		fprintf(stderr, "wc: turret %d fires at %04x, %.0f m, yaw %.0f pitch %.0f (frame %llu, tick %llu)\n", t + 1, target, best,
-			yaw, pitch, (unsigned long long)frames, (unsigned long long)pc_ticks());
+		fprintf(stderr, "wc: turret %d fires at %04x, %.0f m, yaw %.0f pitch %.0f: %d shots (frame %llu, tick %llu)\n", t + 1, target,
+			best, yaw, pitch, made, (unsigned long long)frames, (unsigned long long)pc_ticks());
 }
 
 void turret_hook(uint32_t at)
