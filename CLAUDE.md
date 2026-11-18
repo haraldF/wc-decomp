@@ -694,8 +694,8 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   tachyon 1250 m/s, 50, 8. The three fights with the save's turret plasma made tachyons (WEAPGUNS
   type 6 -> 7, a test copy): 39 hits from 38 salvos against plasma's 25 from 28.
   Charge: when the ship's part at +6 says so (its method 28h), a shot takes cost * 256 / that part's
-  word +32h (FUN_5b2b_0009 refills up to it, FUN_589b_0004 fires from it): the user's Righteous Fire
-  Centurion has 320, 102 of 128. turret.c's own check used the plain cost, so after the first salvo the
+  word +32h (FUN_5b2b_0009 refills up to it, FUN_589b_0004 fires from it): RF's gun cooler, the save's
+  COOL chunk (the user's: 320, so 102 of 128; also SHBO 320, SPEE and THRU 300, RF's other upgrades). turret.c's own check used the plain cost, so after the first salvo the
   turret waited forever ("11 salvos in a lot of missions"); fixed, the three fights (an RF copy of H5
   with Militia hostile) went from 1 salvo each to 10, 12, 13; Privateer's unchanged (28 salvos, 25 hits).
   At every launch FUN_448e_0105 builds the player's ship and FUN_592c_010c copies the guns from its
