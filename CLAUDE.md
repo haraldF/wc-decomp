@@ -657,8 +657,9 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   script works unchanged (same menu, Quine registration, a landing pad at 110000, launch at 116000):
   a new game reached the concourse (click 280,100 on the pad) and space, nav map included, with no
   missing code. Missions, combat, landing and saving there are untried. RF's Load lists `????????.PRS`
-  (find first); a Privateer .SAV copied to .PRS loads (the user's H5: landing pad, launch, space).
-  The save's header holds the plot state at 31h: a mission name like `s5md`, or `FFFFFFFF`.
+  (find first); a Privateer .SAV copied to .PRS loads, but New Game is the way in: it takes a Privateer
+  pilot (the user's H5: same KILL and SCOR, other guns, armour 3000 instead of 500, other credits, plot
+  zeros). The header holds the plot state at 31h: a mission like `s5md`, `FFFFFFFF`, or zeros in RF.
 - Self-firing turrets (runtime/turret.c, a hook after the player's guns at 5b2b:048c in FUN_5b2b_0158,
   where [BP+6] is the weapons and SI the world): only turrets whose guns the player switched on in
   their view (the user's choice; each gun's +35h stays as set there, the cockpit view doesn't clear it,
