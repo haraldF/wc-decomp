@@ -660,6 +660,11 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   (find first); a Privateer .SAV copied to .PRS loads, but New Game is the way in: it takes a Privateer
   pilot (the user's H5: same KILL and SCOR, other guns, armour 3000 instead of 500, other credits, plot
   zeros). The header holds the plot state at 31h: a mission like `s5md`, `FFFFFFFF`, or zeros in RF.
+  Then a flags byte (ovl03_07ce packs the plot object DS:6569's +0Bh and +0Ch): bit 1 ended, bit 0
+  succeeded (both needed to be paid when landing, ovl04_0589), bits 2-6 requirements checked, met,
+  paid, taken (its effects applied), success checked; bit 7 is junk. 7F/FF: done; 00/80: not taken
+  yet (the fixer offers it). The next word counts the missions in the log. Landing during the user's
+  Goodin 3 (RF, s10mc) left A2 (ended, not succeeded, taken) and no mission: set to 80 (Goodin offering it again unchecked).
 - Self-firing turrets (runtime/turret.c, a hook after the player's guns at 5b2b:048c in FUN_5b2b_0158,
   where [BP+6] is the weapons and SI the world): only turrets whose guns the player switched on in
   their view (the user's choice; each gun's +35h stays as set there, the cockpit view doesn't clear it,
