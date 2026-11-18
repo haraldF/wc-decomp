@@ -685,6 +685,11 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   to 71% of the shots hitting, with as many hits. The user's own first count was 20% (106 shots).
   Then, in the user's fights: 50% (56 shots), 59-60% from under 1.5 km, 3 of 14 from farther: the
   range is 1.5 km by default (two thirds of the guns' reach if less), at the user's request.
+  Pace: a turret fires whenever one of its guns has recharged (energy +2Fh up to its cost +2Bh, 256 =
+  1 s: plasma 0.72 s, tachyon 0.40 s), not once a second as at first (user's wish). Guns (from
+  memory): plasma 940 m/s, +29h 72 (copied into the shot, probably its damage), ship energy +33h 19;
+  tachyon 1250 m/s, 50, 8. The three fights with the save's turret plasma made tachyons (WEAPGUNS
+  type 6 -> 7, a test copy): 39 hits from 38 salvos against plasma's 25 from 28.
   Calling game code from C:
   call_far pushes the arguments and a far return, sets CS and runs it, then restores the registers.
 - In H5 (and probably any loaded save) every gun starts off (+35h = 0): the guns fire only after a gun

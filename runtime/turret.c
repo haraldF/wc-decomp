@@ -9,7 +9,8 @@
  * turret's guns that are on, with their energy, refire time and damage as usual. Then all is put back.
  *
  * At exit the hits are reported (follow_shots). WC_TURRET=debug reports once a second what each turret sees (its guns, the hostile ships near,
- * and why it doesn't shoot at them), and each shot; WC_TURRET_EVERY=ms between a turret's shots (1000),
+ * and why it doesn't shoot at them), and each shot; WC_TURRET_EVERY=ms at least between a turret's
+ * shots (by default it fires whenever one of its guns has recharged),
  * WC_TURRET_DRIFT=m (60: how far the target may weave off the aim while the shots fly, at its
  * present acceleration; it waits for a steadier moment), WC_TURRET_RANGE=m (1500, or two thirds of
  * its guns' reach if that is less: plasma flies 940 m/s for 3.4 s. In the user's fights, with 60 m
@@ -39,7 +40,7 @@ enum {
  * is on (0 the front), +35h on. The weapons: +0Ah the ship, +0Eh the guns, +3Fh the current turret. */
 
 static int turret_on = -1, turret_debug;
-static double every_ns = 1000e6, range_m;
+static double every_ns, range_m;
 static uint32_t ds_base;
 static uint64_t frames, next_shot[2];
 
@@ -294,15 +295,20 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 	uint32_t guns[16];
 	int own = 0;
 	double speed = 0, reach = 0;
+	int ready = 0;
 	for (int i = 0; i < n && i < 16; i++) {
 		const uint16_t g[3] = { (uint16_t)(soff + 0xe), sseg, (uint16_t)i };
 		const uint32_t gun = call_code(0x592c, 0x08b6, 3, g);
 		guns[i] = lin(gun >> 16, gun & 0xffff);
 		/* only the guns switched on in its view (keys 1-4, G there) */
-		if (M[guns[i] + 0x22] == t + 1 && M[guns[i] + 0x35] && !own++) {
+		if (M[guns[i] + 0x22] != t + 1 || !M[guns[i] + 0x35]) continue;
+		if (!own++) {
 			speed = (int32_t)mrd(guns[i], 4) / 256.0;
 			reach = speed * (int32_t)mrd(guns[i] + 4, 4) / 256.0;
 		}
+		/* recharged: its energy (+2Fh, refilled by the frame's time) up to its cost (+2Bh, 256 = 1 s:
+		 * plasma 0.72 s, tachyons 0.40 s), as FUN_589b_0004 wants it */
+		ready += (int32_t)mrd(guns[i] + 0x2f, 4) >= (int32_t)mrd(guns[i] + 0x2b, 4);
 	}
 	if (status) {
 		fprintf(stderr, "wc: turret %d: %d guns, %d of them its own and on:", t + 1, n, own);
@@ -311,7 +317,7 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 				fprintf(stderr, " on %d energy %d/%d", M[guns[i] + 0x35], (int32_t)mrd(guns[i] + 0x2f, 4), (int32_t)mrd(guns[i] + 0x2b, 4));
 		fprintf(stderr, ", %.0f m/s, reach %.0f m (frame %llu)\n", speed, reach, (unsigned long long)frames);
 	}
-	if (!own || speed <= 0) return;
+	if (!own || !ready || speed <= 0) return;
 	const double range = range_m > 0 ? range_m : fmin(1500, reach * 2 / 3);
 
 	/* The ship's axes (rows) and the turret's place; one behind the ship looks back (ovl134_0000's
