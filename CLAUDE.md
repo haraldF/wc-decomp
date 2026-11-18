@@ -693,6 +693,16 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   memory): plasma 940 m/s, +29h 72 (copied into the shot, probably its damage), ship energy +33h 19;
   tachyon 1250 m/s, 50, 8. The three fights with the save's turret plasma made tachyons (WEAPGUNS
   type 6 -> 7, a test copy): 39 hits from 38 salvos against plasma's 25 from 28.
+  Charge: when the ship's part at +6 says so (its method 28h), a shot takes cost * 256 / that part's
+  word +32h (FUN_5b2b_0009 refills up to it, FUN_589b_0004 fires from it): the user's Righteous Fire
+  Centurion has 320, 102 of 128. turret.c's own check used the plain cost, so after the first salvo the
+  turret waited forever ("11 salvos in a lot of missions"); fixed, the three fights (an RF copy of H5
+  with Militia hostile) went from 1 salvo each to 10, 12, 13; Privateer's unchanged (28 salvos, 25 hits).
+  At every launch FUN_448e_0105 builds the player's ship and FUN_592c_010c copies the guns from its
+  record (ovl80_00d7, +35h from the record: 0), so the switches are lost: turret.c remembers, per turret,
+  the guns left on in its view and switches them on again when they turn up all off (`WC_TURRET_CLEAR=
+  frame` clears them for testing). The exit report has the time with guns on, with a hostile in range
+  and in the arc (the Centurion's rear turret: yaw and pitch -60..60).
   Calling game code from C:
   call_far pushes the arguments and a far return, sets CS and runs it, then restores the registers.
 - In H5 (and probably any loaded save) every gun starts off (+35h = 0): the guns fire only after a gun
