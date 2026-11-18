@@ -97,8 +97,10 @@ out/priv/bin/priv ../game-privateer/game r
 One addition to the game: a ship's turrets fire by themselves (`runtime/turret.c`). Switch a turret's
 guns on once in its view (F5, F6; keys 1-4 or G there, as for firing it yourself); from then on, while
 you fly from the cockpit, that turret fires whenever its guns have recharged at the nearest hostile ship
-within its arc and 1.5 km (less for guns whose shots don't reach two kilometres), aimed ahead of
-where the ship is going, and holds fire while that ship weaves hard (`WC_TURRET_DRIFT`, metres). With
+within its arc and range, aimed ahead of
+where the ship is going, and holds fire while that ship weaves hard (`WC_TURRET_DRIFT`, metres). The
+range is as far as its shots fly in 1.6 s: 1.5 km for plasma, about 2 km for tachyons, 2.15 km for
+Righteous Fire's 1350 m/s guns; never under 1.5 km nor over two thirds of the shots' reach. With
 its guns off (as a new or loaded game starts) it stays quiet. The game builds the guns afresh, all off,
 at every launch; the switches you set in a turret's view are remembered until you change them there
 (not when you quit). It shoots through the game's

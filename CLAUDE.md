@@ -703,6 +703,9 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   the guns left on in its view and switches them on again when they turn up all off (`WC_TURRET_CLEAR=
   frame` clears them for testing). The exit report has the time with guns on, with a hostile in range
   and in the arc (the Centurion's rear turret: yaw and pitch -60..60).
+  Range by the shots' flight time (1.6 s, plasma's 1.5 km; at least 1.5 km, at most 2/3 of the reach),
+  at the user's request: RF's 1350 m/s guns 2.15 km. The three RF fights went from 35 salvos and 27
+  hits to 94 and 69 (from 1.5-2.5 km 42 of 70 hit, as from nearer); Privateer's plasma ones unchanged.
   Calling game code from C:
   call_far pushes the arguments and a far return, sets CS and runs it, then restores the registers.
 - In H5 (and probably any loaded save) every gun starts off (+35h = 0): the guns fire only after a gun
