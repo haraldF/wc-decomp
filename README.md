@@ -86,6 +86,10 @@ Its expansion, Righteous Fire, is in GOG's release too (`RF.TRE` from the same C
 it is the same program, started with `r` after the game folder, as GOG's launcher does (`priv r`).
 A new game was checked from the main menu through the landing pad and the concourse into space;
 missions, combat and saving in it are untried.
+Righteous Fire lists only `*.PRS` saves, and Privateer's are `*.SAV`. To bring a Privateer pilot
+over, copy the save to the same name ending in `.PRS` (`H5.sav` to `H5.PRS`): it then shows up under
+Load, and a pilot loaded this way was checked to launch into space. The expansion's story is meant
+for a pilot who has finished Privateer's.
 
 ```bash
 out/priv/bin/priv ../game-privateer/game r
