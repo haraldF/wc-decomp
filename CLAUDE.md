@@ -713,7 +713,8 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
   hits to 94 and 69 (from 1.5-2.5 km 42 of 70 hit, as from nearer); Privateer's plasma ones unchanged.
   Then 3.5 km for RF's guns (user: hostiles fired from just outside 2.15 km and the turret stayed quiet):
   1.5 km + (speed - 940) * 2000/410 m (tachyons ~3 km), at most 80% of the reach; the fights went to 144
-  salvos, 116 hits, 5 kills (from beyond 2.5 km 18 of 28 hit).
+  salvos, 116 hits, 5 kills (from beyond 2.5 km 18 of 28 hit). In the user's flights from 3-3.5 km only
+  1 of 38 hit (2.5-3 km 32 of 63), so 3 km: 1.5 km + (speed - 940) * 1500/410 m (tachyons ~2.6 km).
   Calling game code from C:
   call_far pushes the arguments and a far return, sets CS and runs it, then restores the registers.
 - In H5 (and probably any loaded save) every gun starts off (+35h = 0): the guns fire only after a gun

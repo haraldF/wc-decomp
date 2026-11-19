@@ -330,10 +330,11 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 			dl(tur + 0x3c) / 256.0, dl(tur + 0x40) / 256.0, dl(tur + 0x44) / 256.0, dl(tur + 0x48) / 256.0, (unsigned long long)frames);
 	}
 	if (!own || speed <= 0) return;
-	/* The range goes by the shots' speed: 1.5 km for plasma (940 m/s), 3.5 km for Righteous Fire's
-	 * 1350 m/s guns (the user's wish: hostiles shot from just outside 2.15 km), in between in step
-	 * with the speed (tachyons, 1250 m/s: 3 km); never under 1.5 km nor over 80% of their reach. */
-	const double range = range_m > 0 ? range_m : fmin(fmax(1500, 1500 + (speed - 940) * 2000 / 410), reach * 0.8);
+	/* The range goes by the shots' speed: 1.5 km for plasma (940 m/s), 3 km for Righteous Fire's
+	 * 1350 m/s guns (the user's wish: hostiles shot from just outside 2.15 km; from 3-3.5 km 1 shot in
+	 * 38 hit), in between in step with the speed (tachyons, 1250 m/s: 2.6 km); never under 1.5 km nor
+	 * over 80% of their reach. */
+	const double range = range_m > 0 ? range_m : fmin(fmax(1500, 1500 + (speed - 940) * 1500 / 410), reach * 0.8);
 
 	/* The ship's axes (rows) and the turret's place; one behind the ship looks back (ovl134_0000's
 	 * mount 1: right and forward reversed), others forward (2, 3: top and bottom). */

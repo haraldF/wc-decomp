@@ -99,7 +99,7 @@ guns on once in its view (F5, F6; keys 1-4 or G there, as for firing it yourself
 you fly from the cockpit, that turret fires whenever its guns have recharged at the nearest hostile ship
 within its arc and range, aimed ahead of
 where the ship is going, and holds fire while that ship weaves hard (`WC_TURRET_DRIFT`, metres). The
-range grows with the shots' speed: 1.5 km for plasma (940 m/s), about 3 km for tachyons, 3.5 km for
+range grows with the shots' speed: 1.5 km for plasma (940 m/s), about 2.6 km for tachyons, 3 km for
 Righteous Fire's 1350 m/s guns; never under 1.5 km nor over 80% of the shots' reach. With
 its guns off (as a new or loaded game starts) it stays quiet. The game builds the guns afresh, all off,
 at every launch; the switches you set in a turret's view are remembered until you change them there
