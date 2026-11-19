@@ -155,7 +155,7 @@ static double dot(const double a[3], const double b[3]) { return a[0] * b[0] + a
  * the game's own count); a ship hit that vanished within 5 s after was destroyed. A shot's memory can
  * be reused at once by the next object: a jump of over 300 m ends it too. */
 static struct { uint16_t shot, vt, target; int32_t pos[3]; double min, dist; uint64_t born, seen, life; } follow[32];
-static uint64_t band_shots[5], band_hits[5]; /* by the distance fired at: < 1, 1.5, 2, 2.5 km, more */
+static uint64_t band_shots[7], band_hits[7]; /* by the distance fired at: < 1, 1.5, 2, 2.5, 3, 3.5 km, more */
 static struct { uint16_t ship; uint64_t when; } struck[16];
 static uint64_t salvos, hits, hits_target, early, missed, destroyed;
 static double time_on, time_near[2], time_arc[2]; /* s in flight with turret guns on; with a hostile ship in range, in the arc too */
@@ -203,7 +203,7 @@ static void follow_shots(void)
 		}
 		const uint64_t flew = follow[j].seen - follow[j].born;
 		const int ended_early = flew * 10 < follow[j].life * 9;
-		const int band = follow[j].dist < 1000 ? 0 : follow[j].dist < 1500 ? 1 : follow[j].dist < 2000 ? 2 : follow[j].dist < 2500 ? 3 : 4;
+		const int band = follow[j].dist < 1000 ? 0 : follow[j].dist >= 3500 ? 6 : (int)((follow[j].dist - 500) / 500);
 		band_shots[band]++;
 		if (ended_early && (nearest < 150 || follow[j].min < 150)) {
 			hits++;
@@ -272,11 +272,11 @@ static void turret_report(void)
 		"%llu missed, %d still flying: %.0f%% hit; ships destroyed after a hit: %llu\n", (unsigned long long)salvos,
 		(unsigned long long)hits, (unsigned long long)hits_target, (unsigned long long)early, (unsigned long long)missed,
 		flying, ended ? 100.0 * (double)hits / (double)ended : 0.0, (unsigned long long)destroyed);
-	static const char *const bands[5] = { "under 1 km", "1-1.5 km", "1.5-2 km", "2-2.5 km", "farther" };
+	static const char *const bands[7] = { "under 1 km", "1-1.5 km", "1.5-2 km", "2-2.5 km", "2.5-3 km", "3-3.5 km", "farther" };
 	fprintf(stderr, "wc: turrets: guns on for %.0f s in flight; a hostile ship within range for %.0f s, %.0f s of it in the arc\n",
 		time_on, time_near[0] + time_near[1], time_arc[0] + time_arc[1]);
 	fprintf(stderr, "wc: turrets: hits by the distance fired at:");
-	for (int b = 0; b < 5; b++)
+	for (int b = 0; b < 7; b++)
 		if (band_shots[b]) fprintf(stderr, " %s %llu/%llu", bands[b], (unsigned long long)band_hits[b], (unsigned long long)band_shots[b]);
 	fprintf(stderr, "\n");
 }
@@ -330,9 +330,10 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 			dl(tur + 0x3c) / 256.0, dl(tur + 0x40) / 256.0, dl(tur + 0x44) / 256.0, dl(tur + 0x48) / 256.0, (unsigned long long)frames);
 	}
 	if (!own || speed <= 0) return;
-	/* The range goes by the shots' flight time: 1.5 km for plasma (940 m/s, 1.6 s), farther for faster
-	 * guns (Righteous Fire's 1350 m/s: 2.15 km), never under 1.5 km nor over two thirds of their reach. */
-	const double range = range_m > 0 ? range_m : fmin(fmax(1500, speed * 1500 / 940), reach * 2 / 3);
+	/* The range goes by the shots' speed: 1.5 km for plasma (940 m/s), 3.5 km for Righteous Fire's
+	 * 1350 m/s guns (the user's wish: hostiles shot from just outside 2.15 km), in between in step
+	 * with the speed (tachyons, 1250 m/s: 3 km); never under 1.5 km nor over 80% of their reach. */
+	const double range = range_m > 0 ? range_m : fmin(fmax(1500, 1500 + (speed - 940) * 2000 / 410), reach * 0.8);
 
 	/* The ship's axes (rows) and the turret's place; one behind the ship looks back (ovl134_0000's
 	 * mount 1: right and forward reversed), others forward (2, 3: top and bottom). */
