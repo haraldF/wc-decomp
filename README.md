@@ -110,7 +110,8 @@ range; `WC_TURRET=debug` prints once a second what each turret sees and why it d
 the game ends (quit, or the window closed) the terminal shows how the turrets did, for example
 `wc: turrets: 10 salvos; of the shots 8 hit a ship (8 their target), 0 ended early elsewhere,
 4 missed, 8 still flying: 67% hit; ships destroyed after a hit: 1`, how long its guns were on and a
-hostile ship was within its range (and its arc: a rear turret covers 60 degrees around straight back),
+hostile ship was within its range (and its arc: the Centurion's rear turret covers 60 degrees around straight back, the Galaxy's top
+and bottom turrets turn all the way round, up to 50 degrees above or below the ship),
 and the hits by the distance the turret fired at. A hit is counted when a shot ends
 before its time near a ship (a miss flies its whole range), so it is an estimate, not the game's
 own count.

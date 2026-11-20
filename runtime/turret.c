@@ -350,7 +350,10 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 		base[1][c] = rear ? -S[1][c] : S[1][c];
 		base[2][c] = S[2][c];
 	}
+	/* Equal yaw limits turn all the way round (ovl134's turning; the Galaxy's turrets, 0..0). */
 	const double yaw_lo = dl(tur + 0x3c) / 256.0, yaw_hi = dl(tur + 0x40) / 256.0;
+	const int yaw_free = dl(tur + 0x3c) == dl(tur + 0x40);
+#define YAW_OUT(y) (!yaw_free && ((y) < yaw_lo || (y) > yaw_hi))
 	const double pitch_lo = dl(tur + 0x44) / 256.0, pitch_hi = dl(tur + 0x48) / 256.0;
 
 	/* The nearest hostile ship it can turn to, aimed where it will be (the shots keep the ship's
@@ -374,13 +377,13 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 			fprintf(stderr, "wc: turret %d: hostile %04x at %.0f m, yaw %.0f pitch %.0f, speed %.0f, drift %.0f m%s%s\n", t + 1, obj, dist, y, p,
 				sqrt(dot(v, v)), sqrt(dot(acc, acc)) * tt * tt / 2,
 				dist >= range ? ", out of range" : "",
-				y < yaw_lo || y > yaw_hi || p < pitch_lo || p > pitch_hi ? ", out of its arc" : "");
+				YAW_OUT(y) || p < pitch_lo || p > pitch_hi ? ", out of its arc" : "");
 		}
 		if (dist < range && dist >= 1 && hostile(obj, player)) {
 			const double lx = dot(d, base[0]), ly = dot(d, base[1]), lz = dot(d, base[2]);
 			const double y = -atan2(lx, ly) * 180 / M_PI, p = atan2(lz, hypot(lx, ly)) * 180 / M_PI;
 			near = 1;
-			if (y >= yaw_lo && y <= yaw_hi && p >= pitch_lo && p <= pitch_hi) in_arc = 1;
+			if (!YAW_OUT(y) && p >= pitch_lo && p <= pitch_hi) in_arc = 1;
 		}
 		if (dist >= best || dist < 1) continue;
 		motion(obj, v, acc);
@@ -398,7 +401,7 @@ static void turret_fire(int t, uint16_t sseg, uint16_t soff, uint16_t world, uin
 		/* The game's yaw turns towards the turret's -x (checked: +30 degrees on the rear turret sent
 		 * the shots towards the ship's +x), its pitch towards +z (up). */
 		const double y = -atan2(lx, ly) * 180 / M_PI, p = atan2(lz, hypot(lx, ly)) * 180 / M_PI;
-		if (y < yaw_lo || y > yaw_hi || p < pitch_lo || p > pitch_hi) continue;
+		if (YAW_OUT(y) || p < pitch_lo || p > pitch_hi) continue;
 		if (!hostile(obj, player)) continue;
 		best = dist;
 		yaw = y;
