@@ -70,6 +70,11 @@ public class WcRecomp extends GhidraScript {
 	private final TreeMap<Long, Integer> relocs = new TreeMap<>();
 	/** relocated values within the instruction being translated */
 	private Set<Long> relocValues = Set.of();
+	/** A CALL's return offset as Ghidra pushes it (relative to its fake CS, the address rounded down to
+	 * 64 KB) and the real one (relative to the instruction's segment), or -1: code that reads its return
+	 * address (Borland's _setargv returns through it) needs the real one. */
+	private long callNextFake = -1, callNextReal = -1;
+	private int callNextFixes;
 
 	/** Instructions before which the runtime's wc_hook(address) runs (script argument 4: hex, commas). */
 	private final Set<Long> hooks = new HashSet<>();
@@ -250,8 +255,9 @@ public class WcRecomp extends GhidraScript {
 		writeRelocs(out);
 		println(String.format("WcRecomp: %d functions + %d discovered fragments, %d instructions in %d files; " +
 			"%d CS fixes, %d near wrap fixes, %d segment override fixes, %d BP operands through SS, %d far jump fixes, %d IRET fixes, %d jumps by push and return, %d XLAT fixes, %d overlay code reads, " +
-			"%d relocated constants, %d unhandled p-code ops", functions.size(), fragments.size(), owner.size(),
-			files.size(), csFixes, nearWrapFixes, overrideFixes, bpFixes, farJumpFixes, iretFixes, pushReturns, xlatFixes, codeReads, relocConstants, unhandled));
+			"%d relocated constants, %d return offset fixes, %d unhandled p-code ops", functions.size(), fragments.size(), owner.size(),
+			files.size(), csFixes, nearWrapFixes, overrideFixes, bpFixes, farJumpFixes, iretFixes, pushReturns, xlatFixes, codeReads, relocConstants,
+			callNextFixes, unhandled));
 		TreeSet<Long> missing = new TreeSet<>(hooks);
 		missing.removeAll(hooked);
 		writeSummary(out.resolve("summary.json"), functions.size(), fragments.size(), owner.size(), missing);
@@ -989,6 +995,14 @@ public class WcRecomp extends GhidraScript {
 		}
 		Set<Long> swiOutputs = new HashSet<>();
 		Map<Long, Varnode> segOfUnique = new HashMap<>(); // unique offset -> segment input of segment()
+		callNextFake = callNextReal = -1;
+		if (ins.getMnemonicString().startsWith("CALL") && driverSeg < 0) {
+			long after = at + ins.getLength();
+			if ((after & 0xffff) != after - realCs * 16L) {
+				callNextFake = after & 0xffff;
+				callNextReal = after - realCs * 16L;
+			}
+		}
 		boolean ends = false;
 		if (ins.getMnemonicString().equals("XLAT")) {
 			// Ghidra's XLAT reads linear BX+AL, without a segment (DS, or the prefix's: Miles's AdLib
@@ -1039,6 +1053,10 @@ public class WcRecomp extends GhidraScript {
 		switch (op.getOpcode()) {
 			case PcodeOp.COPY:
 				trackLoad(out, in[0]);
+				if (callNextFake >= 0 && in[0].isConstant() && in[0].getSize() == 2 && in[0].getOffset() == callNextFake) {
+					callNextFixes++;
+					return set(out, "0x" + Long.toHexString(callNextReal) + "ULL /* real return offset */", uniques);
+				}
 				if (out.isRegister() && out.getOffset() == CS && in[0].isUnique() && driverSeg >= 0) {
 					return "/* CS stays: position-independent code */";
 				}
@@ -1061,6 +1079,10 @@ public class WcRecomp extends GhidraScript {
 				return set(out, "mrd(" + val(in[1], uniques) + ", " + os + ")", uniques);
 			}
 			case PcodeOp.STORE:
+				if (callNextFake >= 0 && in[2].isConstant() && in[2].getSize() == 2 && in[2].getOffset() == callNextFake) {
+					callNextFixes++;
+					return "mwr(" + b + ", 2, 0x" + Long.toHexString(callNextReal) + "ULL); /* real return offset */";
+				}
 				return "mwr(" + b + ", " + in[2].getSize() + ", " + val(in[2], uniques) + ");";
 			case PcodeOp.INT_ADD: return set(out, a + " + " + b, uniques);
 			case PcodeOp.INT_SUB: return set(out, a + " - " + b, uniques);
@@ -1188,9 +1210,11 @@ public class WcRecomp extends GhidraScript {
 					return "set_flags_word(rd(0x280, 2)); return;";
 				}
 				if (pushReturn(ins) && in.length > 0) {
-					// "push dx; push ax; retf" (Privateer's sound code): a jump to what was pushed
+					// "push dx; push ax; retf" (Privateer's sound code): a jump to what was pushed; unless that is
+					// where the current call returns to (Microsoft C's __chkstk returns with "push dx; push cx;
+					// retf": a jump ran the caller twice; seen in X-Wing)
 					pushReturns++;
-					return "run((uint32_t)" + a + "); return;";
+					return "{ uint32_t pt = (uint32_t)" + a + "; if (!is_return(code_addr(pt))) run(pt); return; }";
 				}
 				return "return;";
 			default:

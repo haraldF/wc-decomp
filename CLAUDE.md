@@ -138,6 +138,12 @@ x86 real-mode modelling bugs the scripts work around:
   loads at `WC_LOAD_SEG` (default 0x0200).
 - Shadow return stack (`push_ret`/`pop_ret`/`is_return`): Borland's `_setargv` "returns" by
   jumping to a saved address. A bug here once looked like an out-of-memory failure in VROOM.
+- CALL/CALLF push the real return offset: Ghidra's p-code pushes `inst_next` relative to its fake CS
+  (the address rounded down to 64 KB), e.g. 392Dh for 0387:00BD; WcRecomp replaces that constant in
+  the call's COPY/STORE with next - real segment * 16 (not in drivers: they run at their own segment
+  base). Found in xwing-decomp (MSC's _setargv and the overlay thunks read it); here no scripted run
+  changed (same pictures and instruction counts in all six programs; 6500-7900 fixes per WC program,
+  19437 in PRCD.EXE).
 - Heap memory overlaps the flattened overlays' addresses at runtime, so
   - `is_program()` decides by segment (overlay code always runs with CS at its segment),
   - overlay CS-relative reads go through `mrd_code()` to a pristine relocated image copy.
@@ -587,7 +593,9 @@ not DOSBox Staging's audio code (GPL, tied to its mixer).
 - Generator: Ghidra reads `CALLF [BP-4]` through DS (int86 again); a BP-based operand without a prefix
   now uses SS (29 in PRCD.EXE, 2 in WC.EXE). The sound code jumps with `push dx; push ax; retf`
   (a function table lookup): a RETF right after two pushes (or one 32-bit push), or a RET after one,
-  is a jump to what was pushed.
+  is a jump to what was pushed, unless it goes where the current call returns to (`is_return`):
+  then it is a return. Microsoft C's __chkstk returns with `push dx; push cx; retf` (xwing-decomp),
+  and as a jump it ran the caller twice. PRCD.EXE's two sites are real jumps, unchanged.
 - Near calls through variables (the sprite code picks its decoder: `mov word ss:[4938],0470h` ...
   `call ss:[4938]`, and `mov di,[46e0]; add di,4222h; call ss:[di]` through a table in DGROUP):
   `storedCallTargets()` seeds them in the program (Ghidra's functions and the fragments, repeated
